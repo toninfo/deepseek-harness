@@ -193,6 +193,81 @@ describe('real Loader composition', () => {
     await failedUpgradeClosed
     expect(await request(port, '/probe')).toMatchObject({ status: 200, body: 'EXACT' })
 
+    // Request guards run before named routes, fallback, and upgrade dispatch.
+    // `handled` stops the chain; omitting `upgrade` leaves upgrades unblocked;
+    // disposing a guard restores the previous path; a throwing HTTP guard is
+    // contained as 400. Double-dispose is a no-op.
+    const hits: string[] = []
+    const passGuard = {
+      http: (): 'pass' => {
+        hits.push('pass-http')
+        return 'pass'
+      },
+      upgrade: (): 'pass' => {
+        hits.push('pass-upgrade')
+        return 'pass'
+      },
+    }
+    const blockGuard = {
+      http: (_req: unknown, res: { writeHead: (code: number) => void; end: (body: string) => void }): 'handled' => {
+        hits.push('block-http')
+        res.writeHead(418)
+        res.end('BLOCKED')
+        return 'handled'
+      },
+      upgrade: (_req: unknown, socket: { write: (chunk: string) => void; destroy: () => void }): 'handled' => {
+        hits.push('block-upgrade')
+        socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+        socket.destroy()
+        return 'handled'
+      },
+    }
+    const unguardedUpgrade = {
+      http: (): 'pass' => 'pass',
+    }
+    const throwGuard = {
+      http: (): 'pass' => {
+        throw new Error('test http guard failure')
+      },
+    }
+    const disposePass = server.registerGuard(passGuard)
+    const disposeBlock = server.registerGuard(blockGuard)
+    expect(await request(port, '/probe')).toMatchObject({ status: 418, body: 'BLOCKED' })
+    const blockedUpgrade = connect(port, '127.0.0.1')
+    blockedUpgrade.on('error', () => { /* The 401 close is the fixture outcome. */ })
+    await once(blockedUpgrade, 'connect')
+    const blockedUpgradeData = once(blockedUpgrade, 'data')
+    blockedUpgrade.write([
+      'GET /events HTTP/1.1',
+      `Host: 127.0.0.1:${String(port)}`,
+      'Connection: Upgrade',
+      'Upgrade: dsh-test',
+      '',
+      '',
+    ].join('\r\n'))
+    const [blockedBytes] = await blockedUpgradeData as [Buffer]
+    expect(String(blockedBytes)).toContain('401 Unauthorized')
+    expect(hits).toEqual(['pass-http', 'block-http', 'pass-upgrade', 'block-upgrade'])
+    disposeBlock()
+    expect(await request(port, '/probe')).toMatchObject({ status: 200, body: 'EXACT' })
+    const httpOnlyGuard = server.registerGuard(unguardedUpgrade)
+    server.registerUpgrade({
+      path: '/events-unguarded',
+      handler: (_req, socket) => {
+        socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: dsh-test\r\n\r\n')
+        socket.destroy()
+      },
+    })
+    const unguarded = await upgrade(port, '/events-unguarded')
+    unguarded.destroy()
+    httpOnlyGuard()
+    disposePass()
+    disposePass()
+    const disposeThrow = server.registerGuard(throwGuard)
+    expect((await request(port, '/probe')).status).toBe(400)
+    disposeThrow()
+    expect(await request(port, '/probe')).toMatchObject({ status: 200, body: 'EXACT' })
+
     // Teardown closes both ordinary and upgraded sockets before it resolves.
     await loaded.fiber.dispose()
     expect(upgradedServerClosed).toBe(true)

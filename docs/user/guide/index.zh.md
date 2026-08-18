@@ -22,6 +22,18 @@
 
 Agent（智能体）可以读取和编辑工作区文件、运行命令、委派工作并维护计划。如果根据当前权限策略，某项操作需要审批，Web UI 会先询问你。
 
+## 从另一台设备打开 UI
+
+将 `DSH_ACCESS_SECRET` 设为至少 16 个字符，绑定所有网卡，并声明手机实际会发送的公开 Host：
+
+```sh
+# PowerShell
+$env:DSH_ACCESS_SECRET = "<secret>"
+pnpm dsh web --host 0.0.0.0 --port 3080 --trusted-host <public-host-or-ip>
+```
+
+在手机上打开该源，输入密钥后进入普通会话界面。对任何互联网绑定，请在前方放置 TLS 反向代理；本服务器不终止 HTTPS。特权宿主操作（设置、凭据、原生目录选择）仍只限回环。
+
 ## 继续使用
 
 - [配置模型](./providers.md)

@@ -119,6 +119,13 @@
         host: !!js ctx.webStartup.host ?? '127.0.0.1'
         port: !!js ctx.webStartup.port ?? 3080
 
+    # Shared-secret access gate: empty DSH_ACCESS_SECRET installs nothing.
+    # --host 0.0.0.0 requires a secret of at least 16 characters (CLI and apply).
+    - id: access-gate
+      name: '@deepseek-ai/dsh-host-access-gate'
+      config:
+        secret: !!js process.env.DSH_ACCESS_SECRET ?? ''
+
     # Web glue owned by this bundle: resolves the built frontend dist (an
     # assembly fact of dsh-web-app, never user config), mounts the
     # frontend-static fallback owner, registers the web-surface prompt

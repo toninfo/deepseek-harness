@@ -129,11 +129,24 @@ describe('web command-line provider', () => {
     expect(observed.exits).toEqual([1])
   })
 
-  it('rejects the intentionally unsupported all-interfaces host before the consumer activates', async () => {
+  it('rejects the all-interfaces host without a long enough access secret', async () => {
     const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
-    expect(observed.out).toContain('--host 0.0.0.0 is intentionally not supported yet for safety: it would expose remote code execution to the network; use 127.0.0.1 instead')
+    expect(observed.out).toContain('--host 0.0.0.0 requires DSH_ACCESS_SECRET with at least 16 characters')
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([1])
+  })
+
+  it('publishes the all-interfaces host when DSH_ACCESS_SECRET is long enough', async () => {
+    const previous = process.env.DSH_ACCESS_SECRET
+    process.env.DSH_ACCESS_SECRET = 'sixteen-chars-ok'
+    try {
+      const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
+      expect(values).toEqual({ host: '0.0.0.0', trustedHosts: [] })
+      expect(observed.exits).toEqual([])
+    } finally {
+      if (previous === undefined) delete process.env.DSH_ACCESS_SECRET
+      else process.env.DSH_ACCESS_SECRET = previous
+    }
   })
 })

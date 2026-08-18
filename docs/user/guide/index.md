@@ -22,6 +22,18 @@ Start a session and send:
 
 The agent can read and edit workspace files, run commands, delegate work, and maintain a plan. The Web UI asks before operations that require approval under the active permission policy.
 
+## Open the UI from another device
+
+Set `DSH_ACCESS_SECRET` to at least 16 characters, bind all interfaces, and name the public Host the phone will send:
+
+```sh
+# PowerShell
+$env:DSH_ACCESS_SECRET = "<secret>"
+pnpm dsh web --host 0.0.0.0 --port 3080 --trusted-host <public-host-or-ip>
+```
+
+Open that origin on the phone, enter the secret, and the ordinary session UI loads. Put a TLS reverse proxy in front of any internet bind; this server does not terminate HTTPS. Privileged host actions (Settings, credentials, native folder pick) remain loopback-only.
+
 ## Continue
 
 - [Configure models](./providers.md)

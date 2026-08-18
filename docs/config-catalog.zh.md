@@ -723,6 +723,24 @@ export interface Config {
 
 来源：[`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-codex/src/index.ts)
 
+<a id="deepseek-aidsh-host-access-gate"></a>
+
+## `@deepseek-ai/dsh-host-access-gate`
+
+需要：`webServer`
+
+```ts config-catalog
+/** Plugin config: the shared secret and cookie lifetime. */
+export interface Config {
+  /** Shared secret; whitespace-only disables the gate. */
+  secret: string
+  /** Cookie lifetime in seconds; minimum 60. */
+  ttlSeconds: number
+}
+```
+
+来源：[`packages/host/access-gate/src/index.ts:51`](../packages/host/access-gate/src/index.ts)
+
 <a id="deepseek-aidsh-host-apiproxy"></a>
 
 ## `@deepseek-ai/dsh-host-apiproxy`
@@ -801,7 +819,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/host/webserver/src/index.ts:45`](../packages/host/webserver/src/index.ts)
+来源：[`packages/host/webserver/src/index.ts:61`](../packages/host/webserver/src/index.ts)
 
 <a id="deepseek-aidsh-invariants"></a>
 

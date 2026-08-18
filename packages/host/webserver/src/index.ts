@@ -1,9 +1,10 @@
 /**
  * @deepseek-ai/dsh-host-webserver — Web route-registration plugin: a node:http
  * server plus the `webServer` service (HTTP and upgrade route registries,
- * index transform taps, and the single fallback seat for everything no route
- * claims). Knows no harness concepts and serves no files; the composing
- * application's frontend plugin owns dist serving through the fallback hook.
+ * request guards, index transform taps, and the single fallback seat for
+ * everything no route claims). Knows no harness concepts and serves no files;
+ * the composing application's frontend plugin owns dist serving through the
+ * fallback hook.
  * Web shape only — Electron loads dist over file:// and carries fetch over an
  * IPC bridge. This package never prints: the URL line belongs to the shell.
  */
@@ -41,6 +42,21 @@ export interface WebUpgradeRoute {
   handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>
 }
 
+/** Whether a guard finished the exchange (`handled`) or left it for routes. */
+export type WebGuardResult = 'pass' | 'handled'
+
+/**
+ * A request interceptor that runs before named routes, the fallback seat, and
+ * upgrade dispatch. `handled` means the guard completed the HTTP response or
+ * the upgrade socket; later guards and routes do not run.
+ */
+export interface WebGuard {
+  /** Gate one HTTP request. */
+  http: (req: IncomingMessage, res: ServerResponse) => WebGuardResult | Promise<WebGuardResult>
+  /** Gate one HTTP upgrade. Omitted means upgrades pass this guard. */
+  upgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => WebGuardResult | Promise<WebGuardResult>
+}
+
 /** Gateway config: the listen address. */
 export interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
@@ -67,6 +83,7 @@ export class WebServer extends Service {
   private readonly upgrades = new Map<string, WebUpgradeRoute>()
   private readonly upgradedSockets = new Set<Duplex>()
   private readonly indexTaps: ((html: string) => string)[] = []
+  private readonly guards: WebGuard[] = []
   private fallback: WebRoute['handler'] | undefined
   private server!: Server
   private listenedPort!: number
@@ -144,9 +161,26 @@ export class WebServer extends Service {
     }
   }
 
+  /**
+   * Register a request guard. Guards run in registration order before route
+   * match and upgrade dispatch; the first `handled` result stops the chain.
+   * @param guard - HTTP interceptor, with an optional upgrade interceptor.
+   * @returns the disposer removing the guard.
+   */
+  registerGuard(guard: WebGuard): () => void {
+    this.guards.push(guard)
+    return () => {
+      const at = this.guards.indexOf(guard)
+      if (at !== -1) this.guards.splice(at, 1)
+    }
+  }
+
   /** Listen; resolves once the socket is bound (rejection = FAILED fiber). */
   async [Service.init](): Promise<void> {
     const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+      for (const guard of this.guards) {
+        if (await guard.http(req, res) === 'handled') return
+      }
       /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server
       requests; the field is only optional on the client-side IncomingMessage type */
       const rawPath = new URL(req.url ?? '/', 'http://x').pathname
@@ -188,29 +222,31 @@ export class WebServer extends Service {
         socket.off('error', onError)
         this.upgradedSockets.delete(socket)
       })
-      let route: WebUpgradeRoute | undefined
-      try {
-        /* v8 ignore next -- node:http always sets url on server requests. */
-        route = this.upgrades.get(new URL(req.url ?? '/', 'http://x').pathname)
-      } catch (error) {
-        this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
-        socket.destroy()
-        return
-      }
-      if (route === undefined) {
-        socket.destroy()
-        return
-      }
-      this.upgradedSockets.add(socket)
-      try {
-        Promise.resolve(route.handler(req, socket, head)).catch((error: unknown) => {
+      const dispatch = async (): Promise<void> => {
+        for (const guard of this.guards) {
+          if (guard.upgrade === undefined) continue
+          if (await guard.upgrade(req, socket, head) === 'handled') return
+        }
+        let route: WebUpgradeRoute | undefined
+        try {
+          /* v8 ignore next -- node:http always sets url on server requests. */
+          route = this.upgrades.get(new URL(req.url ?? '/', 'http://x').pathname)
+        } catch (error) {
           this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
           socket.destroy()
-        })
-      } catch (error) {
+          return
+        }
+        if (route === undefined) {
+          socket.destroy()
+          return
+        }
+        this.upgradedSockets.add(socket)
+        await route.handler(req, socket, head)
+      }
+      dispatch().catch((error: unknown) => {
         this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
         socket.destroy()
-      }
+      })
     })
 
     await new Promise<void>((resolve, reject) => {
