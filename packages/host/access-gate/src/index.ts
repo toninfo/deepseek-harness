@@ -13,8 +13,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { WebGuardResult } from '@deepseek-ai/dsh-host-webserver'
-import { renderLoginPage } from './login-page.ts'
+import { renderLoginPage, resolveLoginTheme, type LoginTheme } from './login-page.ts'
 import { LoginLimiter } from './rate-limit.ts'
 import {
   ACCESS_COOKIE,
@@ -45,6 +46,20 @@ type TooLarge = typeof TOO_LARGE
 const HTML_HEADERS = {
   'content-type': 'text/html; charset=utf-8',
   'cache-control': 'no-store',
+}
+
+/** Same Host section the Appearance row persists. */
+const UI_THEME_NAMESPACE = settingsNamespace('ui-theme')
+
+/**
+ * @param ctx - plugin context that may carry `settings`.
+ * @returns the Appearance preference, or `system` when settings are absent.
+ */
+function appearanceTheme(ctx: Context): LoginTheme {
+  const settings = ctx.get('settings')
+  if (settings === undefined) return resolveLoginTheme(undefined)
+  const section = settings.get(UI_THEME_NAMESPACE) as { preference?: unknown } | undefined
+  return resolveLoginTheme(section?.preference)
 }
 
 /** Plugin config: the shared secret and cookie lifetime. */
@@ -201,7 +216,7 @@ export function apply(ctx: Context, config: Config): void {
 
   const denyHtml = (res: ServerResponse, status: number, error?: string): void => {
     res.writeHead(status, HTML_HEADERS)
-    res.end(renderLoginPage(error))
+    res.end(renderLoginPage(error, appearanceTheme(ctx)))
   }
 
   const denyPlain = (res: ServerResponse, status: number, body: string): void => {

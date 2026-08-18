@@ -14,7 +14,7 @@ Web UI 的 HTTP 载体没有认证。`dsh web --host 0.0.0.0` 被拒绝，因为
 
 - `WebServer.registerGuard` 在具名路由、回退席位和 upgrade 分发之前运行。`handled` 完成这次交换；省略 `upgrade` 则不拦截 upgrade。该表受 effect 作用域约束。
 - `@deepseek-ai/dsh-host-access-gate` 是随附的守卫。去除空白后为空的 `secret` 不安装任何东西（回环上的 `dsh web` 不变）。非空但短于 16 个字符的密钥会在加载时失败。绑定 `0.0.0.0` 且密钥为空同样会在加载时失败。Web 组合包从 `DSH_ACCESS_SECRET` 读取 `secret`。
-- 未认证的 HTML GET/HEAD 收到无需 JavaScript 的中文登录页。该文档强制 `color-scheme: light`，并为密码框设置 `color`、背景、`-webkit-text-fill-color` 与 `caret-color`，避免系统深色主题把已输入的圆点藏掉；`font-size: 16px` 避免 iOS 放大输入框。`POST /__dsh/access` 接受表单 `secret=` 或 JSON `{secret}`，并设置 HttpOnly 的 `dsh_access` HMAC cookie（`SameSite=Lax`、`Path=/`、`Max-Age`=`ttlSeconds`，在 HTTPS 或 `X-Forwarded-Proto` 以 `https` 开头时带 `Secure`）。未认证的 `/api` 以及其他非 GET/HEAD 返回 401。未认证的 upgrade 会被拒绝。失败登录按 `socket.remoteAddress` 限制为每 60 秒五次。
+- 未认证的 HTML GET/HEAD 收到无需 JavaScript 的中文登录页。该页跟随 Host 外观偏好（`ui-theme.preference`：`light`、`dark` 或 `system`）；没有设置时使用 `system` 与 `prefers-color-scheme`。两套配色都为密码框设置 `color`、背景、`-webkit-text-fill-color` 与 `caret-color`，使已输入的圆点保持可见；`font-size: 16px` 避免 iOS 放大输入框。560px 断点（与其它 Web 表单相同）会去掉桌面卡片装饰、应用安全区边距，并在屏幕键盘弹出时允许页面滚动。`POST /__dsh/access` 接受表单 `secret=` 或 JSON `{secret}`，并设置 HttpOnly 的 `dsh_access` HMAC cookie（`SameSite=Lax`、`Path=/`、`Max-Age`=`ttlSeconds`，在 HTTPS 或 `X-Forwarded-Proto` 以 `https` 开头时带 `Secure`）。未认证的 `/api` 以及其他非 GET/HEAD 返回 401。未认证的 upgrade 会被拒绝。失败登录按 `socket.remoteAddress` 限制为每 60 秒五次。
 - cookie 存储过期时间加 HMAC，不存储密钥。这不是用户账户系统：任何知道密钥的人都是同一主体。TLS 终止仍由反向代理负责。特权 `/api` 方法仍只限回环。
 
 ## 曾考虑的替代方案

@@ -6,30 +6,84 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;')
 }
 
+/** Appearance preference the login page can paint without JavaScript. */
+export type LoginTheme = 'light' | 'dark' | 'system'
+
+/**
+ * Narrow a settings or caller value to a login-page theme.
+ * @param preference - `ui-theme.preference` or any other wire value.
+ * @returns a built-in theme; unknown values follow the system palette.
+ */
+export function resolveLoginTheme(preference: unknown): LoginTheme {
+  return preference === 'light' || preference === 'dark' || preference === 'system'
+    ? preference
+    : 'system'
+}
+
+const DARK_VARS = `
+      --page: #151517;
+      --card: #232324;
+      --text: #f5f5f7;
+      --muted: #a1a1a6;
+      --field: #2c2c2e;
+      --field-focus: #3a3a3c;
+      --placeholder: #86868b;
+      --error: #ff453a;
+      --accent: #0a84ff;
+      --accent-active: #409cff;
+      --on-accent: #ffffff;
+      --caret: #0a84ff;
+      --focus: rgba(10, 132, 255, 0.32);
+      --shadow: 0 2px 8px rgba(0, 0, 0, 0.32), 0 12px 40px rgba(0, 0, 0, 0.4);
+      color-scheme: dark;`
+
 /**
  * Self-contained Chinese login HTML. No JavaScript — a phone browser must
- * submit the form with a native POST. Input color, fill, and caret are
- * explicit so a dark OS theme cannot hide typed password bullets.
+ * submit the form with a native POST. Palettes are explicit in both light
+ * and dark so typed password bullets stay visible. `system` follows
+ * `prefers-color-scheme`; `light`/`dark` match the Appearance setting.
+ * A 560px breakpoint drops the desktop card chrome, matching other Web forms.
  *
  * @param error Optional message shown above the field.
+ * @param theme Appearance preference; defaults to `system`.
  * @returns Complete HTML document.
  */
-export function renderLoginPage(error?: string): string {
+export function renderLoginPage(error?: string, theme: LoginTheme = 'system'): string {
   const errorHtml =
     error === undefined
       ? ''
       : `<p class="error" role="alert">${escapeHtml(error)}</p>`
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="${theme}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>DeepSeek Harness</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --page: #f5f5f7;
+      --card: #ffffff;
+      --text: #1d1d1f;
+      --muted: #6e6e73;
+      --field: #f5f5f7;
+      --field-focus: #ffffff;
+      --placeholder: #86868b;
+      --error: #b3261e;
+      --accent: #0071e3;
+      --accent-active: #0077ed;
+      --on-accent: #ffffff;
+      --caret: #0071e3;
+      --focus: rgba(0, 113, 227, 0.18);
+      --shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 12px 40px rgba(0, 0, 0, 0.06);
+      color-scheme: light;
+    }
+    :root[data-theme="dark"] { ${DARK_VARS} }
+    @media (prefers-color-scheme: dark) {
+      :root[data-theme="system"] { ${DARK_VARS} }
+    }
     html {
       height: 100%;
-      color-scheme: light;
       -webkit-text-size-adjust: 100%;
     }
     body {
@@ -38,18 +92,23 @@ export function renderLoginPage(error?: string): string {
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+      padding:
+        max(24px, env(safe-area-inset-top))
+        max(24px, env(safe-area-inset-right))
+        max(24px, env(safe-area-inset-bottom))
+        max(24px, env(safe-area-inset-left));
+      overflow-y: auto;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
         "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
-      background: #f5f5f7;
-      color: #1d1d1f;
+      background: var(--page);
+      color: var(--text);
     }
     main {
-      width: min(400px, 100%);
-      background: #ffffff;
+      width: min(420px, 100%);
+      background: var(--card);
       border-radius: 22px;
       padding: 44px 32px 32px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 12px 40px rgba(0, 0, 0, 0.06);
+      box-shadow: var(--shadow);
     }
     h1 {
       font-size: 28px;
@@ -61,14 +120,14 @@ export function renderLoginPage(error?: string): string {
       margin-top: 8px;
       font-size: 17px;
       line-height: 1.4;
-      color: #6e6e73;
+      color: var(--muted);
       font-weight: 400;
     }
     .error {
       margin-top: 16px;
       font-size: 14px;
       line-height: 1.4;
-      color: #b3261e;
+      color: var(--error);
     }
     label { display: block; margin-top: 28px; }
     .sr {
@@ -85,26 +144,26 @@ export function renderLoginPage(error?: string): string {
       padding: 0 16px;
       border: 0;
       border-radius: 12px;
-      background: #f5f5f7;
-      color: #1d1d1f;
-      -webkit-text-fill-color: #1d1d1f;
-      caret-color: #0071e3;
+      background: var(--field);
+      color: var(--text);
+      -webkit-text-fill-color: var(--text);
+      caret-color: var(--caret);
       font: inherit;
       font-size: 16px;
-      line-height: 48px;
+      line-height: 1.25;
       outline: none;
       appearance: none;
       -webkit-appearance: none;
       opacity: 1;
     }
     input[type="password"]::placeholder {
-      color: #86868b;
-      -webkit-text-fill-color: #86868b;
+      color: var(--placeholder);
+      -webkit-text-fill-color: var(--placeholder);
       opacity: 1;
     }
     input[type="password"]:focus {
-      background: #ffffff;
-      box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.18), 0 0 0 1px #0071e3;
+      background: var(--field-focus);
+      box-shadow: 0 0 0 4px var(--focus), 0 0 0 1px var(--accent);
     }
     button {
       display: block;
@@ -113,8 +172,8 @@ export function renderLoginPage(error?: string): string {
       margin-top: 16px;
       border: 0;
       border-radius: 12px;
-      background: #0071e3;
-      color: #ffffff;
+      background: var(--accent);
+      color: var(--on-accent);
       font: inherit;
       font-size: 17px;
       font-weight: 600;
@@ -122,7 +181,35 @@ export function renderLoginPage(error?: string): string {
       cursor: pointer;
       -webkit-appearance: none;
     }
-    button:active { background: #0077ed; }
+    button:active { background: var(--accent-active); }
+    @media (hover: hover) and (pointer: fine) {
+      button:hover { background: var(--accent-active); }
+    }
+    @media (max-width: 560px) {
+      body {
+        align-items: stretch;
+        padding:
+          max(16px, env(safe-area-inset-top))
+          max(16px, env(safe-area-inset-right))
+          max(16px, env(safe-area-inset-bottom))
+          max(16px, env(safe-area-inset-left));
+      }
+      main {
+        width: 100%;
+        max-width: 420px;
+        margin-block: auto;
+        background: transparent;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 28px 4px 16px;
+      }
+      h1 { font-size: 24px; }
+      .lead { font-size: 16px; }
+    }
+    @media (max-height: 500px) {
+      body { align-items: flex-start; }
+      main { margin-block: 0; }
+    }
   </style>
 </head>
 <body>
