@@ -1662,6 +1662,16 @@
     },
     {
       "doc": "docs/subsystems/web-server.md",
+      "symbol": "WebGuardResult",
+      "source": "packages/host/webserver/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/web-server.md",
+      "symbol": "WebGuard",
+      "source": "packages/host/webserver/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/web-server.md",
       "symbol": "Config",
       "source": "packages/host/webserver/src/index.ts"
     },

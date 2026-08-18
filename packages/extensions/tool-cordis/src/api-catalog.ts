@@ -2090,6 +2090,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the disposer removing the transform.',
       },
       {
+        signature: 'registerGuard(guard: WebGuard): () => void',
+        description: 'Register a request guard. Guards run in registration order before route match and upgrade dispatch; the first `handled` result stops the chain.',
+        parameters: [{ name: 'guard', description: 'HTTP interceptor, with an optional upgrade interceptor.' }],
+        returns: 'the disposer removing the guard.',
+      },
+      {
         signature: 'applyIndexTaps(html: string): string',
         description: 'Run an index.html body through the registered taps in registration order — called by the fallback owner on every index response it renders.',
         parameters: [{ name: 'html', description: 'the raw index.html body.' }],
@@ -4566,6 +4572,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebFetchResultView',
     declaration: 'export interface WebFetchResultView {\n    card: \'web\';\n    kind: \'fetch\';\n    title?: string;\n    url: string;\n    statusCode: number;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'WebGuard',
+    declaration: 'export interface WebGuard {\n    http: (req: IncomingMessage, res: ServerResponse) => WebGuardResult | Promise<WebGuardResult>;\n    upgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => WebGuardResult | Promise<WebGuardResult>;\n}',
+  },
+  {
+    name: 'WebGuardResult',
+    declaration: 'export type WebGuardResult = \'pass\' | \'handled\';',
   },
   {
     name: 'WebResultView',

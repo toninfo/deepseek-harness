@@ -462,6 +462,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   PresetSpec: 'permission-presets.md',
   InvariantInstaller: 'invariants.md',
   WebRoute: 'web-server.md',
+  WebGuard: 'web-server.md',
+  WebGuardResult: 'web-server.md',
   StorageBackend: 'storage.md',
   StorageForms: 'storage.md',
   Domain: 'storage.md',

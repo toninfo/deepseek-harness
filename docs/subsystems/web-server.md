@@ -24,7 +24,26 @@ interface WebRoute {
 }
 ```
 
-Match order is fixed: exact table first, then longest matching prefix, then the registered fallback. Registration order carries no request-facing semantics — named routes are composed to be disjoint, and the fallback seat answers anything no named route claims; one owner only, a second registration throws. The shipped Web composition claims the seat with [`dsh-host-frontend-static`](../../packages/host/frontend-static/src/index.ts), the SPA dist server with locked semantics: non-GET/HEAD is 405, traversal outside the dist root is 403, any miss falls back to `index.html` with HTTP 200 (SPA routing), and unknown extensions ship as octet-stream.
+```ts type-equiv
+/** Whether a guard finished the exchange (`handled`) or left it for routes. */
+type WebGuardResult = 'pass' | 'handled'
+```
+
+```ts type-equiv
+/**
+ * A request interceptor that runs before named routes, the fallback seat, and
+ * upgrade dispatch. `handled` means the guard completed the HTTP response or
+ * the upgrade socket; later guards and routes do not run.
+ */
+interface WebGuard {
+  /** Gate one HTTP request. */
+  http: (req: IncomingMessage, res: ServerResponse) => WebGuardResult | Promise<WebGuardResult>
+  /** Gate one HTTP upgrade. Omitted means upgrades pass this guard. */
+  upgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => WebGuardResult | Promise<WebGuardResult>
+}
+```
+
+Match order is fixed: registered guards in registration order, then exact table, then longest matching prefix, then the registered fallback. The first guard that returns `handled` completes the exchange; later guards and routes do not run. Registration order among named routes carries no request-facing semantics — named routes are composed to be disjoint, and the fallback seat answers anything no named route claims; one owner only, a second registration throws. The shipped Web composition claims the seat with [`dsh-host-frontend-static`](../../packages/host/frontend-static/src/index.ts), the SPA dist server with locked semantics: non-GET/HEAD is 405, traversal outside the dist root is 403, any miss falls back to `index.html` with HTTP 200 (SPA routing), and unknown extensions ship as octet-stream. [`dsh-host-access-gate`](../../packages/host/access-gate/src/index.ts) is the shipped shared-secret guard.
 
 ## Config
 
@@ -38,11 +57,11 @@ interface Config {
 }
 ```
 
-`host` accepts only `127.0.0.1` (default posture) and `0.0.0.0` (deliberate network exposure); there is no TLS, auth, or origin policy, so a non-loopback bind exposes the server to that network. The dist location is an assembly fact of the frontend plugin that claims the seat.
+`host` accepts only `127.0.0.1` (default posture) and `0.0.0.0` (deliberate network exposure); there is no TLS or origin policy. Authentication is a composing-application guard, not this package. A non-loopback bind exposes the TCP listener; put a TLS reverse proxy in front of a public bind. The dist location is an assembly fact of the frontend plugin that claims the seat.
 
 ## The service
 
-`WebServer` (`ctx.webServer`) listens immediately on activation; a listen failure (EADDRINUSE…) rejects initialization, and the boot process reports the failed fiber. `register(route)` adds one named route and returns its disposer; a duplicate `(kind, path)` throws because route patterns are a composition-level contract and a collision is a misconfiguration. `tapIndex(transform)` adds a pure html-to-html transform applied to every index response — `/` and each SPA fallback — in registration order; [dsh-client-modules](../../packages/client/modules) uses it to inject the boot manifest. `port` reads the listening port, including the port assigned by the OS when `config.port` is 0.
+`WebServer` (`ctx.webServer`) listens immediately on activation; a listen failure (EADDRINUSE…) rejects initialization, and the boot process reports the failed fiber. `register(route)` adds one named route and returns its disposer; a duplicate `(kind, path)` throws because route patterns are a composition-level contract and a collision is a misconfiguration. `registerGuard(guard)` adds a request interceptor that runs before route match and upgrade dispatch. `tapIndex(transform)` adds a pure html-to-html transform applied to every index response — `/` and each SPA fallback — in registration order; [dsh-client-modules](../../packages/client/modules) uses it to inject the boot manifest. `port` reads the listening port, including the port assigned by the OS when `config.port` is 0.
 
 A request whose handling throws (a malformed %-escape hitting `decodeURIComponent`, a client dropping mid-body) is logged as a warning and answered 400 — or the socket destroyed when headers are already out — never a process exit. Disposal pairs `close()` with `closeAllConnections()` because a handler may hold its response open (SSE) and such connections never end on their own; without the force-close, teardown would hang. The package never prints: the URL line belongs to the shell. Per-package operational detail, including the dev-mode bundle watch pipeline, stays in the [README](../../packages/host/webserver/README.md).
 
@@ -96,6 +115,14 @@ registerFallback(handler: WebRoute['handler']): () => void
 tapIndex(transform: (html: string) => string): () => void
 
 /**
+ * Register a request guard. Guards run in registration order before route
+ * match and upgrade dispatch; the first `handled` result stops the chain.
+ * @param guard - HTTP interceptor, with an optional upgrade interceptor.
+ * @returns the disposer removing the guard.
+ */
+registerGuard(guard: WebGuard): () => void
+
+/**
  * Run an index.html body through the registered taps in registration order
  * — called by the fallback owner on every index response it renders.
  * @param html - the raw index.html body.
@@ -104,5 +131,5 @@ tapIndex(transform: (html: string) => string): () => void
 applyIndexTaps(html: string): string
 ```
 
-Source: [`packages/host/webserver/src/index.ts:59`](../../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:75`](../../packages/host/webserver/src/index.ts)
 <!-- END GENERATED cordis-surface -->

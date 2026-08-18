@@ -15,9 +15,9 @@ export const name = 'host-webserver-invariant'
 export const inject = ['invariants']
 
 /**
- * Owned relation: HTTP and upgrade route registrations and their disposers must stay
- * symmetric — after the owning fiber of a registered route unloads, the
- * route table must no longer answer for its path (a stale route would keep
+ * Owned relation: HTTP, upgrade, and guard registrations and their disposers
+ * must stay symmetric — after the owning fiber of a registered route or guard
+ * unloads, the tables must no longer answer for it (a stale entry would keep
  * serving a disposed plugin's handler). Checked on every fiber teardown
  * (cordis 'internal/plugin'): the service's own registry state is compared
  * against the set of live fibers' registrations indirectly, by probing that
@@ -29,6 +29,7 @@ const install: InvariantInstaller = (ctx, fail) => {
       | {
         register(route: { kind: 'exact'; path: string; handler: () => void }): () => void
         registerUpgrade(route: { path: string; handler: () => void }): () => void
+        registerGuard(guard: { http: () => 'pass' }): () => void
       }
       | undefined
     if (server === undefined) return // no webserver row in this composition
@@ -43,6 +44,9 @@ const install: InvariantInstaller = (ctx, fail) => {
       const upgradeProbe = { path: '/__dsh_invariant_upgrade_probe__', handler: () => {} }
       server.registerUpgrade(upgradeProbe)()
       server.registerUpgrade(upgradeProbe)()
+      const guardProbe = { http: (): 'pass' => 'pass' }
+      server.registerGuard(guardProbe)()
+      server.registerGuard(guardProbe)()
     } catch {
       fail('webServer route disposer left a route registered — route tables and fiber lifecycles diverged')
     }
