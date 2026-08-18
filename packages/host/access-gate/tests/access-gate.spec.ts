@@ -6,7 +6,7 @@
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
-import { request as httpRequest } from 'node:http'
+import { request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,7 +25,7 @@ import {
   secretsEqual,
   verifyAccessToken,
 } from '../src/token.ts'
-import { renderLoginPage } from '../src/login-page.ts'
+import { renderLoginPage, resolveLoginTheme } from '../src/login-page.ts'
 
 const SECRET = 'sixteen-chars-ok'
 const SHORT = 'too-short'
@@ -171,8 +171,58 @@ describe('login page', () => {
     expect(input).toBeDefined()
     expect(input).not.toMatch(/\bdisabled\b/)
     expect(input).not.toMatch(/\breadonly\b/)
-    expect(html).toContain('caret-color: #0071e3')
-    expect(html).toContain('color-scheme: light')
+    expect(html).toContain('caret-color: var(--caret)')
+    expect(html).toContain('-webkit-text-fill-color: var(--text)')
+  })
+
+  it('paints light, dark, and system palettes without JavaScript', () => {
+    expect(resolveLoginTheme('light')).toBe('light')
+    expect(resolveLoginTheme('dark')).toBe('dark')
+    expect(resolveLoginTheme('system')).toBe('system')
+    expect(resolveLoginTheme('sepia')).toBe('system')
+    expect(resolveLoginTheme(undefined)).toBe('system')
+    expect(renderLoginPage()).toContain('data-theme="system"')
+    expect(renderLoginPage(undefined, 'light')).toContain('data-theme="light"')
+    expect(renderLoginPage(undefined, 'dark')).toContain('data-theme="dark"')
+    expect(renderLoginPage()).toContain('prefers-color-scheme: dark')
+    expect(renderLoginPage(undefined, 'dark')).toContain('color-scheme: dark')
+  })
+
+  it('uses the Web form breakpoint and safe-area insets', () => {
+    const html = renderLoginPage()
+    expect(html).toContain('@media (max-width: 560px)')
+    expect(html).toContain('safe-area-inset-left')
+    expect(html).toContain('safe-area-inset-right')
+    expect(html).toContain('@media (max-height: 500px)')
+  })
+
+  it('applies the Appearance preference when settings are present', async () => {
+    const ctx = new Context()
+    let http: ((req: IncomingMessage, res: ServerResponse) => Promise<string> | string) | undefined
+    ctx.provide('webServer', {
+      host: '127.0.0.1',
+      registerGuard(guard: { http: NonNullable<typeof http> }) {
+        http = guard.http
+        return () => { http = undefined }
+      },
+    } as never)
+    ctx.provide('settings', {
+      get: () => ({ preference: 'dark' }),
+    } as never)
+    AccessGate.apply(ctx, { secret: SECRET, ttlSeconds: 86_400 })
+    expect(http).toBeDefined()
+    const chunks: string[] = []
+    await http!({
+      method: 'GET',
+      url: '/',
+      headers: {},
+      socket: { remoteAddress: '127.0.0.1' },
+    } as IncomingMessage, {
+      writeHead() {},
+      end(body?: string) { if (body !== undefined) chunks.push(body) },
+    } as unknown as ServerResponse)
+    expect(chunks.join('')).toContain('data-theme="dark"')
+    await ctx.fiber.dispose()
   })
 })
 
@@ -229,6 +279,7 @@ describe('real Loader composition', () => {
       const login = await request(port, '/')
       expect(login.status).toBe(401)
       expect(login.body).toContain('请输入访问密钥以继续')
+      expect(login.body).toContain('data-theme="system"')
       expect((await request(port, '/', { method: 'HEAD' })).status).toBe(401)
       expect((await request(port, '/api/session')).status).toBe(401)
       expect((await request(port, '/', { method: 'POST' })).status).toBe(401)
