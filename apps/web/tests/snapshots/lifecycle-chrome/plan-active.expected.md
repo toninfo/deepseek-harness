@@ -20,7 +20,7 @@
 - button "Settings":
   - img
   - text: Settings
-- text: Tribute to the Unknown
+- text: Tribute on null
 - button "Choose workspace":
   - img
   - text: workspace
