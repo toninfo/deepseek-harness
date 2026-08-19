@@ -4,17 +4,27 @@
  * details, then auto-closing it (derived zero width — preferred width
  * preferences are never rewritten, so widening the window restores them).
  * The sidebar never concedes: its rendered width is always the drag
- * preference (or the collapsed rail), and center absorbs any remaining
- * deficit as the last resort. Inputs are the layout store's plain width
- * preferences (0 = closed); a closed sidebar resolves to the fixed
- * SIDEBAR_COLLAPSED control rail while closed details resolve to zero width.
- * The SIDEBAR_AUTO_COLLAPSE breakpoint is consumed by AppFrame, which decides
- * the effective sidebar preference before solving; the solver itself stays
- * breakpoint-free.
+ * preference (or the collapsed rail / zero when phone-hidden), and center
+ * absorbs any remaining deficit as the last resort. Inputs are the layout
+ * store's plain width preferences (0 = closed); a closed sidebar resolves to
+ * the fixed SIDEBAR_COLLAPSED control rail unless `hideClosedSidebar` asks
+ * for true zero (phone drawer mode). Closed details resolve to zero width.
+ * SIDEBAR_AUTO_COLLAPSE and SIDEBAR_PHONE are consumed by AppFrame; the
+ * solver itself stays breakpoint-free.
  */
 
 /** Resolved widths for one frame; center may drop below CENTER_MIN only at the final fallback. */
 export interface Columns { sidebar: number; center: number; details: number }
+
+/** Optional closed-sidebar resolution; phone mode passes `hideClosedSidebar`. */
+export interface ComputeColumnsOptions {
+  /**
+   * When true, a closed sidebar preference (`sidebar === 0`) contributes zero
+   * grid width instead of the compact rail. AppFrame uses this below
+   * SIDEBAR_PHONE so the drawer does not reserve a track.
+   */
+  hideClosedSidebar?: boolean
+}
 
 // Contract-frozen geometry: the three-column concession chain's fixed points.
 /** Center column floor; only the final fallback may go below it. */
@@ -31,6 +41,12 @@ export const SIDEBAR_COLLAPSED = 56
  * LG breakpoint); a manual toggle below it re-expands over the squeezed center
  * (stores.ts narrowExpanded). */
 export const SIDEBAR_AUTO_COLLAPSE = 1024
+/**
+ * Viewport width below which a closed sidebar hides completely (grid width 0)
+ * and AppFrame opens it as an overlay drawer instead of the 56px rail.
+ * Matches other phone forms (onboarding / workflow panels).
+ */
+export const SIDEBAR_PHONE = 560
 /** Details drag clamp floor. */
 export const DETAILS_MIN = 300
 /** Details drag clamp ceiling. */
@@ -51,17 +67,25 @@ export function clampWidth(px: number, min: number, max: number): number {
 
 /**
  * Solve the three column widths for one viewport frame. Pure: no hysteresis —
- * the output is a function of (viewport, preferences) only, so recovery on
- * re-widening is automatic. Preferences re-clamp here because they cross the
- * store boundary and callers may still supply stale ranges.
+ * the output is a function of (viewport, preferences, options) only, so
+ * recovery on re-widening is automatic. Preferences re-clamp here because
+ * they cross the store boundary and callers may still supply stale ranges.
  * @param viewport - available frame width in px.
  * @param sidebar - sidebar width preference in px (0 = closed).
  * @param details - details width preference in px (0 = closed).
- * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
+ * @param options - closed-sidebar resolution; omit for the compact rail.
+ * @returns resolved widths; details 0 means visually closed (never unmounted).
  */
-export function computeColumns(viewport: number, sidebar: number, details: number): Columns {
-  // The sidebar is fixed at its preference (or the rail) — it never concedes.
-  const s = sidebar === 0 ? SIDEBAR_COLLAPSED : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
+export function computeColumns(
+  viewport: number,
+  sidebar: number,
+  details: number,
+  options: ComputeColumnsOptions = {},
+): Columns {
+  // The sidebar is fixed at its preference (rail, hidden, or open) — it never concedes.
+  const s = sidebar === 0
+    ? (options.hideClosedSidebar === true ? 0 : SIDEBAR_COLLAPSED)
+    : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
   const d0 = details === 0 ? 0 : clampWidth(details, DETAILS_MIN, DETAILS_MAX)
 
   // Step 1: everything fits at preferred widths.

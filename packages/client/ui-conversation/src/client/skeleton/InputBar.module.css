@@ -323,6 +323,20 @@
   gap: 12px;
 }
 
+@container (max-width: 460px) {
+  .tools {
+    gap: 8px;
+  }
+
+  .modes {
+    gap: 6px;
+  }
+
+  .trailing {
+    gap: 6px;
+  }
+}
+
 /* Attach circle (figma + control): 28px, selector fill, primary glyph. */
 .add {
   display: grid;

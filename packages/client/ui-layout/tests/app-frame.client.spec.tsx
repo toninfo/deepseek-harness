@@ -15,7 +15,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
-import { SIDEBAR_COLLAPSED } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
+import { SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
 import type {
   SessionId, SessionListState, WorkspaceListState,
@@ -325,6 +325,44 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
     frameWidth = 1920
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     expect(tracks(frame)).toEqual([400, 0])
+  })
+})
+
+describe('AppFrame — phone sidebar drawer', () => {
+  it('hides the sidebar track and shows the open button below the phone breakpoint', () => {
+    frameWidth = 390
+    const { frame, slotCalls, getByRole } = mountFrame()
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(frame.hasAttribute('data-sidebar-hidden')).toBe(true)
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(false)
+    expect(slotCalls.filter(c => c.key === 'sidebar')).toHaveLength(0)
+    expect(getByRole('button', { name: '打开侧边栏' })).toBeTruthy()
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+  })
+
+  it('opens as an overlay drawer without widening the grid track', () => {
+    frameWidth = 390
+    const { frame, instance, slotCalls, queryByRole, getByRole } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(true)
+    expect(frame.hasAttribute('data-sidebar-hidden')).toBe(false)
+    expect(queryByRole('button', { name: '打开侧边栏' })).toBeNull()
+    expect(getByRole('button', { name: '收起侧边栏' })).toBeTruthy()
+    expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({
+      collapsed: false,
+      width: Math.min(SIDEBAR_DEFAULT, Math.max(200, 390 - 48)),
+    })
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+  })
+
+  it('mask click collapses the phone drawer', () => {
+    frameWidth = 390
+    const { frame, instance, getByRole } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    act(() => { getByRole('button', { name: '收起侧边栏' }).click() })
+    expect(frame.hasAttribute('data-sidebar-hidden')).toBe(true)
+    expect(instance.getSnapshot().narrowExpanded).toBe(false)
   })
 })
 

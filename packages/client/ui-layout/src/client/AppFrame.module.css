@@ -29,6 +29,57 @@
   border-right: 1px solid var(--dsw-alias-border-l1);
 }
 
+/* Phone-hidden: zero-width track must not paint a 1px seam (same as details). */
+.frame[data-sidebar-hidden] .sidebarCol {
+  border-right: none;
+}
+
+/* Phone drawer: fixed overlay beside a zero grid track; mask sits under it. */
+.frame[data-sidebar-drawer] .sidebarCol {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 30;
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.sidebarMask {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: var(--dsw-mask-blur);
+  cursor: pointer;
+}
+
+.sidebarOpen {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 21;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 18px;
+  background: var(--dsw-alias-button-floating-fill);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  box-shadow: var(--dsw-shadow-lv2);
+}
+
+.sidebarOpen:hover {
+  background: var(--dsw-alias-button-floating-hover);
+}
+
 .centerCol {
   min-width: 0;
   display: flex;
