@@ -6,14 +6,18 @@
  * renders HERE with live parameters from the concession solve, and the
  * session-aware occupants render in fixed column positions; strict entries
  * gate themselves on current-session availability while session-maybe
- * entries retain identity. Pure component: everything arrives
- * through the three framework shares — zero cordis or framework imports,
- * zero self-made hooks.
+ * entries retain identity. Below SIDEBAR_PHONE a closed sidebar contributes
+ * zero grid width and opens as an overlay drawer; the frame owns the phone
+ * open button and dismiss mask. Pure component: everything arrives through
+ * the three framework shares — zero cordis or framework imports, zero
+ * self-made hooks.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import { computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
+import {
+  computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT, SIDEBAR_PHONE,
+} from './columns.ts'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
 
@@ -31,6 +35,22 @@ function CenterColumn(props: { children?: ReactNode }) {
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
 function DetailsColumn(props: { children?: ReactNode }) {
   return <div className={css.detailsCol}>{props.children}</div>
+}
+
+/**
+ * Phone-only open affordance: three-line menu mark (no ui-primitives edge from
+ * this package). Visible label is Chinese product copy; English mirrors the
+ * sidebar locale key for bilingual screen readers on en.
+ */
+function PhoneSidebarOpenIcon() {
+  return (
+    <svg width={18} height={18} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M2.5 3.75h11a.75.75 0 0 1 0 1.5h-11a.75.75 0 0 1 0-1.5Zm0 3.5h11a.75.75 0 0 1 0 1.5h-11a.75.75 0 0 1 0-1.5Zm0 3.5h11a.75.75 0 0 1 0 1.5h-11a.75.75 0 0 1 0-1.5Z"
+      />
+    </svg>
+  )
 }
 
 /**
@@ -129,19 +149,31 @@ export function AppFrame({
 
   // Narrow viewports auto-collapse the sidebar; the store mirror keeps
   // toggleSidebar's semantics right (narrow toggles flip the manual
-  // re-expand override, stores.ts). Collapsed is decided here, so the
-  // solver stays breakpoint-free: a narrow re-expand passes the preference
-  // (or the default when the wide preference is closed) and the center
-  // absorbs the squeeze.
+  // re-expand override, stores.ts). Below SIDEBAR_PHONE the closed state
+  // hides the rail entirely and an open state paints an overlay drawer —
+  // the grid track stays at zero so the center is not squeezed.
+  const phone = viewport < SIDEBAR_PHONE
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
   useEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
   const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
-  const sidebarPreference = sidebarCollapsed
+  const drawerOpen = phone && !sidebarCollapsed
+  const drawerWidth = Math.min(SIDEBAR_DEFAULT, Math.max(200, viewport - 48))
+  const sidebarPreference = phone
     ? 0
-    : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+    : sidebarCollapsed
+      ? 0
+      : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
+  const cols = computeColumns(
+    viewport,
+    sidebarPreference,
+    detailsSession === undefined ? 0 : panels.details,
+    { hideClosedSidebar: phone },
+  )
   const colsRef = useRef(cols)
   colsRef.current = cols
+  const sidebarOwnerWidth = drawerOpen ? drawerWidth : cols.sidebar
+  // Phone drawer shows the wide sidebar UI even though the grid track is 0.
+  const sidebarOwnerCollapsed = phone ? false : sidebarCollapsed
 
   // The drag base is the rendered width captured at drag start (grabbing a
   // concession-clamped panel must not jump back to the stored preference);
@@ -167,18 +199,21 @@ export function AppFrame({
       className={css.frame}
       style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
+      data-sidebar-hidden={phone && sidebarCollapsed ? true : undefined}
+      data-sidebar-drawer={drawerOpen || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
       data-dragging={dragging || undefined}
     >
-      <div className={css.sidebarCol}>
-        {/* Render-site slot call with live concession output: a closed
-            sidebar keeps the mounted slot at the compact-rail width, and the
-            component sees its rendered state as owner params decided here
-            (collapsed follows the resolved rail, so a derived auto-collapse
-            renders the rail UI too). */}
-        {renderSlot('sidebar', {
-          collapsed: sidebarCollapsed,
-          width: cols.sidebar,
+      <div
+        className={css.sidebarCol}
+        style={drawerOpen ? { width: drawerWidth } : undefined}
+      >
+        {/* Phone-hidden: keep the slot mounted at zero width so plugin state
+            survives; overflow:hidden clips the rail. Drawer mode paints the
+            same slot as a fixed overlay (CSS) with the wide owner props. */}
+        {!(phone && sidebarCollapsed) && renderSlot('sidebar', {
+          collapsed: sidebarOwnerCollapsed,
+          width: sidebarOwnerWidth,
         })}
       </div>
       <>
@@ -190,11 +225,31 @@ export function AppFrame({
         <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
         <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
       </>
+      {drawerOpen && (
+        <button
+          type="button"
+          className={css.sidebarMask}
+          aria-label="收起侧边栏"
+          onClick={() => { actions.toggleSidebar() }}
+        />
+      )}
       <div className={css.overlayLayer} data-shell-overlay>
+        {phone && sidebarCollapsed && (
+          <button
+            type="button"
+            className={css.sidebarOpen}
+            aria-label="打开侧边栏"
+            onClick={() => { actions.toggleSidebar() }}
+          >
+            <PhoneSidebarOpenIcon />
+          </button>
+        )}
         {renderSlot('shell.overlay', {})}
       </div>
-      {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {/* The collapsed rail / phone drawer has no resize handle. */}
+      {!sidebarCollapsed && !phone && (
+        <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />
+      )}
       {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )

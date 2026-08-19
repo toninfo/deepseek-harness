@@ -92,9 +92,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Sidebar owner share: live column state from the frame's concession solve. */
 export interface SidebarOwnerProps {
-  /** True when the sidebar is closed (the column renders the compact control rail). */
+  /**
+   * True when the sidebar is closed as the compact control rail.
+   * Phone drawer mode always passes false (wide UI); phone-hidden unmounts
+   * the slot instead of rendering a zero-width rail.
+   */
   collapsed: boolean
-  /** Rendered column width in px (SIDEBAR_COLLAPSED when collapsed). */
+  /**
+   * Rendered column width in px: SIDEBAR_COLLAPSED for the rail, the open
+   * preference (or drawer width) when expanded, never read while phone-hidden.
+   */
   width: number
 }
 

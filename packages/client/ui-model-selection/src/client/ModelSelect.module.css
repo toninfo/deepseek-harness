@@ -62,6 +62,25 @@
   transform: rotate(180deg);
 }
 
+/* Narrow composer row (InputBar .row is an anonymous size container): drop
+   the effort caption first, then tighten the chip so model + meter + send
+   still fit beside collapsed permission/plan chips. */
+@container (max-width: 460px) {
+  .triggerEffort {
+    display: none;
+  }
+
+  .trigger {
+    max-width: 148px;
+  }
+}
+
+@container (max-width: 360px) {
+  .trigger {
+    max-width: 112px;
+  }
+}
+
 .menu {
   position: absolute;
   right: 0;

@@ -32,6 +32,31 @@
   border-bottom: 1px solid transparent;
 }
 
+/* Phone: leave room for AppFrame's top-left sidebar open control (36px at
+   left 12px) so the title row does not sit under the button. */
+@media (max-width: 560px) {
+  .root {
+    --dsh-composer-side-clearance: 12px;
+  }
+
+  .header {
+    padding: 12px 12px 0 56px;
+  }
+
+  .tabs {
+    gap: 20px;
+    padding-left: 0;
+  }
+
+  .headerUtilities {
+    margin-left: 8px;
+  }
+
+  .crumb {
+    max-width: 140px;
+  }
+}
+
 .header::after {
   content: '';
   position: absolute;

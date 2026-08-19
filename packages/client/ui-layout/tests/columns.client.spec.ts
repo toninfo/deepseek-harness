@@ -27,6 +27,11 @@ describe('computeColumns', () => {
       .toEqual({ sidebar: SIDEBAR_COLLAPSED, center: 1920 - SIDEBAR_COLLAPSED, details: 0 })
   })
 
+  it('hideClosedSidebar resolves a closed preference to zero grid width', () => {
+    expect(computeColumns(390, closed(300), closed(360), { hideClosedSidebar: true }))
+      .toEqual({ sidebar: 0, center: 390, details: 0 })
+  })
+
   it('preferences beyond the clamp range are clamped before solving', () => {
     const cols = computeColumns(1920, open(9999), open(1))
     expect(cols.sidebar).toBe(420)
