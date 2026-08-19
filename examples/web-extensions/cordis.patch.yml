@@ -1,0 +1,31 @@
+# Opt-in Web host extensions: Schedule reminders, persistent PTY terminal, and
+# Claude Code command hooks. Applied after the shipped web profile layers via
+# `dsh web --patch examples/web-extensions/cordis.patch.yml`.
+
+- insert:
+    - id: time-context
+      name: '@deepseek-ai/dsh-time-context'
+
+    - id: schedule
+      name: '@deepseek-ai/dsh-schedule'
+
+    - id: pty
+      name: '@deepseek-ai/dsh-terminal'
+
+    - id: terminal-bash
+      name: '@deepseek-ai/dsh-terminal-bash'
+      config:
+        pollIntervalMs: 10
+        exactProbeAfterMs: 20
+        idleSilenceMs: 250
+        handoffGraceMs: 250
+        timeoutMs: 2000
+        disposeGraceMs: 500
+
+    - id: tool-terminal
+      name: '@deepseek-ai/dsh-tool-terminal'
+
+    - id: hooks-claude-code
+      name: '@deepseek-ai/dsh-hooks-claude-code'
+      config:
+        configPath: ./examples/web-extensions/hooks.json
