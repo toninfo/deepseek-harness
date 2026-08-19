@@ -10,6 +10,7 @@ import type { ApiProxy, HostFrame, MuxFrame } from '../api/index.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, ClientResponse, RpcMessage, RpcReceipt, RpcRequest, RpcResponse, ServerRequest } from '../api/rpc.ts'
 import { RpcId } from '../api/rpc.ts'
+import { randomUuid } from './random-uuid.ts'
 import type { Wire } from '../api/rpc.schema.ts'
 import { rpcReceiptSchema, serverRequestSchema, serverResponseSchema } from '../api/rpc.schema.ts'
 import { hostFrameSchema, muxFrameSchema } from '../api/events.schema.ts'
@@ -295,9 +296,14 @@ export abstract class AbstractApiClient implements IApiClient {
     return loc?.origin !== undefined && loc.origin !== 'null' ? loc.origin : INTERNAL_BASE
   }
 
+  /**
+   * Mint a client-originated rpcId.
+   * Uses `crypto.getRandomValues()` so an HTTP origin that is not a secure
+   * context (LAN IP, named Host without TLS) can still call `/api`.
+   * @returns a version-4 UUID branded as {@link RpcId}.
+   */
   protected mintRpcId(): RpcId {
-    // crypto.randomUUID is a Web API (browser + Node ≥19): keeps this base platform-neutral.
-    return RpcId(crypto.randomUUID())
+    return RpcId(randomUuid())
   }
 
   /**
@@ -539,6 +545,8 @@ export class InProcessApiClient extends AbstractApiClient {
     })
   }
 }
+
+export { randomUuid } from './random-uuid.ts'
 
 /** Mirror fetch's abort rejection: the signal's reason when present, else a DOMException-style AbortError. */
 function abortError(signal: AbortSignal): Error {

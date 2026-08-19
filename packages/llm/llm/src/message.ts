@@ -170,6 +170,18 @@ export function freezeMessage<T extends Message>(message: T): T {
   return deepFreeze(structuredClone(message))
 }
 
+/** Message identity that still mints on HTTP origins that omit `crypto.randomUUID`. */
+function mintMessageId(): MessageId {
+  const webCrypto = globalThis.crypto
+  if (typeof webCrypto.randomUUID === 'function') return MessageId(webCrypto.randomUUID())
+  const bytes = webCrypto.getRandomValues(new Uint8Array(16))
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  view.setUint8(6, (view.getUint8(6) & 0x0f) | 0x40)
+  view.setUint8(8, (view.getUint8(8) & 0x3f) | 0x80)
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return MessageId(`${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`)
+}
+
 /**
  * Create one identified message and freeze it before publication.
  * @param input - complete role, content, and source for a new message.
@@ -180,7 +192,7 @@ export function createMessage<T extends NewMessage>(
 ): T & Pick<Message, 'id'> {
   return freezeMessage({
     ...input,
-    id: MessageId(crypto.randomUUID()),
+    id: mintMessageId(),
   })
 }
 
