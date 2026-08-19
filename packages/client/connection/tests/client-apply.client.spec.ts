@@ -281,6 +281,46 @@ describe('connection client apply', () => {
     expect(sockets[0]?.readyState).toBe(FakeWebSocket.CLOSED)
   })
 
+  it('mints WebApiClient rpcIds without requiring secure-context randomUUID', async () => {
+    ;(globalThis as Win).location = {
+      hostname: '192.168.2.4', search: '', origin: 'http://192.168.2.4:3080',
+    }
+    vi.stubGlobal('crypto', {
+      getRandomValues(bytes: Uint8Array) {
+        return bytes.fill(0)
+      },
+    })
+    const handle = await mount()
+    const original = globalThis.fetch
+    const seen: { url: string; body: unknown }[] = []
+    globalThis.fetch = async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (typeof init?.body !== 'string') throw new TypeError('expected a JSON string request body')
+      const body = JSON.parse(init.body) as { rpcId: string }
+      seen.push({ url, body })
+      return Response.json({
+        type: 'server-response',
+        rpcId: body.rpcId,
+        result: { ok: true, value: { items: [] } },
+      })
+    }
+    try {
+      await expect(handle.api.sessions.list({})).resolves.toMatchObject({
+        result: { ok: true, value: { items: [] } },
+      })
+    } finally {
+      globalThis.fetch = original
+      vi.unstubAllGlobals()
+    }
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.url).toBe('http://192.168.2.4:3080/api/session.list')
+    expect(seen[0]?.body).toMatchObject({
+      type: 'client-request',
+      rpcId: '00000000-0000-4000-8000-000000000000',
+      method: 'session.list',
+    })
+  })
+
   it('carries RPC calls without requiring secure-context randomUUID', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     vi.stubGlobal('crypto', {

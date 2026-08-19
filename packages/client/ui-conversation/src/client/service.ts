@@ -58,11 +58,17 @@ export interface IConversation {
   loadOlder(): Promise<void>
 }
 
+/** Opaque draft id; `crypto.getRandomValues` is available on insecure HTTP origins. */
+function newDraftAttachmentId(): DraftAttachmentId {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('') as DraftAttachmentId
+}
+
 /** Create one browser-only draft descriptor; only its id enters input state. */
 function browserDraftAttachment(file: File): ComposerAttachment {
   return {
     kind: 'image',
-    id: crypto.randomUUID() as DraftAttachmentId,
+    id: newDraftAttachmentId(),
     previewUrl: URL.createObjectURL(file),
     file,
   }

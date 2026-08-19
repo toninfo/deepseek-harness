@@ -83,6 +83,26 @@ describe('ConversationController', () => {
     await b.runtime.dispose()
   })
 
+  it('creates draft attachments without requiring crypto.randomUUID', async () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues(bytes: Uint8Array) {
+        return bytes.fill(7)
+      },
+    })
+    const b = await bench()
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft')
+    try {
+      const [attachment] = b.root.createDraftImages([
+        new File([new Uint8Array(4)], 'a.png', { type: 'image/png' }),
+      ])
+      expect(attachment?.id).toBe('07070707070707070707070707070707')
+    } finally {
+      created.mockRestore()
+      vi.unstubAllGlobals()
+    }
+    await b.runtime.dispose()
+  })
+
   it('releases draft previews when their session scope is disposed', async () => {
     const b = await bench()
     const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft-1')
