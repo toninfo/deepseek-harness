@@ -104,7 +104,7 @@ describe('ConversationController', () => {
     const b = await bench()
     const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft')
     try {
-      const [attachment] = b.root.createDraftImages([
+      const [attachment] = b.root.createDrafts(b.runtime.sessions.binding('s1')!.session.sessionId, [
         new File([new Uint8Array(4)], 'a.png', { type: 'image/png' }),
       ])
       expect(attachment?.id).toBe('07070707070707070707070707070707')
