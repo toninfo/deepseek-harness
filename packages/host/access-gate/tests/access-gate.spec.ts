@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, FiberState } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
@@ -242,10 +242,25 @@ describe('real Loader composition', () => {
   })
 
   it('fails load on a short secret and on 0.0.0.0 without a secret', { timeout: 60_000 }, async () => {
-    await expect(loadComposition({ secret: SHORT })).rejects.toThrow(/secret must be at least 16 characters/)
-    await expect(loadComposition({ host: '0.0.0.0', secret: '' })).rejects.toThrow(
-      /required when the webserver binds 0\.0\.0\.0/,
-    )
+    const short = await loadComposition({ secret: SHORT })
+    try {
+      const entry = [...short.ctx.loader.entries()]
+        .find(e => e.options.name === '@deepseek-ai/dsh-host-access-gate')
+      expect(entry?.fiber?.state).toBe(FiberState.FAILED)
+      await expect(entry?.fiber?.await()).rejects.toThrow(/secret must be at least 16 characters/)
+    } finally {
+      await disposeComposition(short)
+    }
+
+    const unbound = await loadComposition({ host: '0.0.0.0', secret: '' })
+    try {
+      const entry = [...unbound.ctx.loader.entries()]
+        .find(e => e.options.name === '@deepseek-ai/dsh-host-access-gate')
+      expect(entry?.fiber?.state).toBe(FiberState.FAILED)
+      await expect(entry?.fiber?.await()).rejects.toThrow(/required when the webserver binds 0\.0\.0\.0/)
+    } finally {
+      await disposeComposition(unbound)
+    }
   })
 
   it('gates HTML, /api, upgrades, login, logout, JSON, and HMR', { timeout: 60_000 }, async () => {

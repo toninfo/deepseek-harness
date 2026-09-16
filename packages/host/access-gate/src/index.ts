@@ -13,7 +13,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { WebGuardResult } from '@deepseek-ai/dsh-host-webserver'
 import { renderLoginPage, resolveLoginTheme, type LoginTheme } from './login-page.ts'
 import { LoginLimiter } from './rate-limit.ts'
@@ -49,7 +48,7 @@ const HTML_HEADERS = {
 }
 
 /** Same Host section the Appearance row persists. */
-const UI_THEME_NAMESPACE = settingsNamespace('ui-theme')
+const UI_THEME_NAMESPACE = 'ui-theme'
 
 /**
  * @param ctx - plugin context that may carry `settings`.

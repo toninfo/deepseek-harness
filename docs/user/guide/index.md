@@ -39,4 +39,4 @@ Open that origin on the phone, enter the secret, and the ordinary session UI loa
 - [Configure models](./providers.md)
 - [Use the Python SDK](./python-sdk.md)
 - [Use other CLI modes](../../../apps/cli/README.md)
-- [Develop a plugin](../develop/basic/)
+- [Develop a plugin](../develop/basic/index.md)
