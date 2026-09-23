@@ -5,6 +5,8 @@
  * {@link ACCESS_SECRET_MIN_LENGTH} fails at load. A long enough secret
  * registers a guard that serves a no-JavaScript login page, sets an HttpOnly
  * HMAC cookie, and rejects unauthenticated `/api` and upgrade traffic.
+ * A successful form login redirects to a sanitized relative `next` path so a
+ * Connection browser launch token in the denied URL survives the gate.
  * Binding `0.0.0.0` with an empty secret also fails at load.
  * @module @deepseek-ai/dsh-host-access-gate
  */
@@ -14,7 +16,7 @@ import type { Duplex } from 'node:stream'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { WebGuardResult } from '@deepseek-ai/dsh-host-webserver'
-import { renderLoginPage, resolveLoginTheme, type LoginTheme } from './login-page.ts'
+import { renderLoginPage, resolveLoginTheme, safeReturnPath, type LoginTheme } from './login-page.ts'
 import { LoginLimiter } from './rate-limit.ts'
 import {
   ACCESS_COOKIE,
@@ -157,11 +159,19 @@ function readBody(req: IncomingMessage, limit: number): Promise<Buffer | TooLarg
   })
 }
 
+/** Fields accepted by `POST /__dsh/access`. */
+interface LoginSubmission {
+  /** Shared secret from the form or JSON body. */
+  secret: string | undefined
+  /** Optional relative resume path; form POST uses it as the 303 Location. */
+  next: string | undefined
+}
+
 /**
  * @param req - the incoming request.
- * @returns the secret submitted by form POST or JSON POST, or `undefined`.
+ * @returns the submitted secret and optional resume path, or the too-large sentinel.
  */
-async function readSubmittedSecret(req: IncomingMessage): Promise<string | undefined | TooLarge> {
+async function readLoginSubmission(req: IncomingMessage): Promise<LoginSubmission | TooLarge> {
   const body = await readBody(req, BODY_LIMIT)
   if (!Buffer.isBuffer(body)) return TOO_LARGE
   const text = body.toString('utf8')
@@ -170,11 +180,20 @@ async function readSubmittedSecret(req: IncomingMessage): Promise<string | undef
   const media = (semi === -1 ? rawType : rawType.slice(0, semi)).trim().toLowerCase()
   if (media === 'application/json') {
     const parsed: unknown = JSON.parse(text)
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
-    const secret = (parsed as { secret?: unknown }).secret
-    return typeof secret === 'string' ? secret : undefined
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { secret: undefined, next: undefined }
+    }
+    const record = parsed as { secret?: unknown; next?: unknown }
+    return {
+      secret: typeof record.secret === 'string' ? record.secret : undefined,
+      next: typeof record.next === 'string' ? record.next : undefined,
+    }
   }
-  return new URLSearchParams(text).get('secret') ?? undefined
+  const params = new URLSearchParams(text)
+  return {
+    secret: params.get('secret') ?? undefined,
+    next: params.get('next') ?? undefined,
+  }
 }
 
 /**
@@ -213,9 +232,9 @@ export function apply(ctx: Context, config: Config): void {
     return token !== undefined && verifyAccessToken(secret, token)
   }
 
-  const denyHtml = (res: ServerResponse, status: number, error?: string): void => {
+  const denyHtml = (res: ServerResponse, status: number, error?: string, next?: string): void => {
     res.writeHead(status, HTML_HEADERS)
-    res.end(renderLoginPage(error, appearanceTheme(ctx)))
+    res.end(renderLoginPage(error, appearanceTheme(ctx), next))
   }
 
   const denyPlain = (res: ServerResponse, status: number, body: string): void => {
@@ -230,20 +249,21 @@ export function apply(ctx: Context, config: Config): void {
       denyHtml(res, 429, '尝试次数过多，请稍后再试。')
       return 'handled'
     }
-    let submitted: string | undefined | TooLarge
+    let submitted: LoginSubmission | TooLarge
     try {
-      submitted = await readSubmittedSecret(req)
+      submitted = await readLoginSubmission(req)
     } catch {
       denyPlain(res, 400, 'Bad Request')
       return 'handled'
     }
-    if (typeof submitted === 'object') {
+    if (!('secret' in submitted)) {
       denyPlain(res, 413, 'Payload Too Large')
       return 'handled'
     }
-    if (submitted === undefined || !secretsEqual(submitted, secret)) {
+    const resume = safeReturnPath(submitted.next)
+    if (submitted.secret === undefined || !secretsEqual(submitted.secret, secret)) {
       limiter.recordFailure(ip, now)
-      denyHtml(res, 401, '密钥不正确。')
+      denyHtml(res, 401, '密钥不正确。', resume)
       return 'handled'
     }
     limiter.clear(ip)
@@ -251,7 +271,7 @@ export function apply(ctx: Context, config: Config): void {
     const json = (req.headers['content-type'] ?? '').includes('application/json')
     res.writeHead(json ? 204 : 303, {
       'set-cookie': cookieHeader(token, config.ttlSeconds, isHttps(req)),
-      ...json ? {} : { location: '/' },
+      ...json ? {} : { location: resume },
     })
     res.end()
     return 'handled'
@@ -268,7 +288,8 @@ export function apply(ctx: Context, config: Config): void {
 
   const http = async (req: IncomingMessage, res: ServerResponse): Promise<WebGuardResult> => {
     /* v8 ignore next -- node:http always sets url on server requests */
-    const path = new URL(req.url ?? '/', 'http://x').pathname
+    const requestUrl = req.url ?? '/'
+    const path = new URL(requestUrl, 'http://x').pathname
     if (path === ACCESS_LOGIN_PATH && req.method === 'POST') return handleLogin(req, res)
     if (path === ACCESS_LOGOUT_PATH && req.method === 'POST') return handleLogout(req, res)
     if (authorized(req)) return 'pass'
@@ -276,7 +297,7 @@ export function apply(ctx: Context, config: Config): void {
       denyPlain(res, 401, 'Unauthorized')
       return 'handled'
     }
-    denyHtml(res, 401)
+    denyHtml(res, 401, undefined, safeReturnPath(requestUrl))
     return 'handled'
   }
 

@@ -25,7 +25,7 @@ import {
   secretsEqual,
   verifyAccessToken,
 } from '../src/token.ts'
-import { renderLoginPage, resolveLoginTheme } from '../src/login-page.ts'
+import { renderLoginPage, resolveLoginTheme, safeReturnPath } from '../src/login-page.ts'
 
 const SECRET = 'sixteen-chars-ok'
 const SHORT = 'too-short'
@@ -165,9 +165,24 @@ describe('login page', () => {
     expect(renderLoginPage()).not.toContain('class="error"')
   })
 
+  it('keeps only a same-origin relative resume path', () => {
+    expect(safeReturnPath(undefined)).toBe('/')
+    expect(safeReturnPath('')).toBe('/')
+    expect(safeReturnPath('/?token=abc')).toBe('/?token=abc')
+    expect(safeReturnPath('/workspace?x=1')).toBe('/workspace?x=1')
+    expect(safeReturnPath('//evil.example')).toBe('/')
+    expect(safeReturnPath('https://evil.example/')).toBe('/')
+    expect(safeReturnPath('/\\evil')).toBe('/')
+    expect(safeReturnPath('relative')).toBe('/')
+    expect(renderLoginPage(undefined, 'system', '/?token=a&b="c"')).toContain(
+      'name="next" value="/?token=a&amp;b=%22c%22"',
+    )
+    expect(renderLoginPage(undefined, 'system', '//evil')).toContain('name="next" value="/"')
+  })
+
   it('keeps the password field editable with an explicit caret color', () => {
     const html = renderLoginPage()
-    const input = /<input\b[^>]*>/.exec(html)?.[0]
+    const input = /<input\b[^>]*type="password"[^>]*>/.exec(html)?.[0]
     expect(input).toBeDefined()
     expect(input).not.toMatch(/\bdisabled\b/)
     expect(input).not.toMatch(/\breadonly\b/)
@@ -291,10 +306,11 @@ describe('real Loader composition', () => {
         },
       })
 
-      const login = await request(port, '/')
+      const login = await request(port, '/?token=launch-token')
       expect(login.status).toBe(401)
       expect(login.body).toContain('请输入访问密钥以继续')
       expect(login.body).toContain('data-theme="system"')
+      expect(login.body).toContain('name="next" value="/?token=launch-token"')
       expect((await request(port, '/', { method: 'HEAD' })).status).toBe(401)
       expect((await request(port, '/api/session')).status).toBe(401)
       expect((await request(port, '/', { method: 'POST' })).status).toBe(401)
@@ -317,6 +333,24 @@ describe('real Loader composition', () => {
       const bareLogin = await rawPost(port, '/__dsh/access', `secret=${SECRET}`)
       expect(bareLogin.status).toBe(303)
       expect(bareLogin.location).toBe('/')
+
+      const tokenLogin = await request(port, '/__dsh/access', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: `secret=${SECRET}&next=${encodeURIComponent('/?token=launch-token')}`,
+        redirect: 'manual',
+      })
+      expect(tokenLogin.status).toBe(303)
+      expect(tokenLogin.headers.get('location')).toBe('/?token=launch-token')
+
+      const openRedirect = await request(port, '/__dsh/access', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: `secret=${SECRET}&next=${encodeURIComponent('//evil.example')}`,
+        redirect: 'manual',
+      })
+      expect(openRedirect.status).toBe(303)
+      expect(openRedirect.headers.get('location')).toBe('/')
 
       const jsonLogin = await request(port, '/__dsh/access', {
         method: 'POST',
@@ -347,11 +381,12 @@ describe('real Loader composition', () => {
       const wrong = await request(port, '/__dsh/access', {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: 'secret=nope-nope-nope-nope',
+        body: `secret=nope-nope-nope-nope&next=${encodeURIComponent('/?token=keep')}`,
         redirect: 'manual',
       })
       expect(wrong.status).toBe(401)
       expect(wrong.body).toContain('密钥不正确')
+      expect(wrong.body).toContain('name="next" value="/?token=keep"')
 
       const badJson = await request(port, '/__dsh/access', {
         method: 'POST',

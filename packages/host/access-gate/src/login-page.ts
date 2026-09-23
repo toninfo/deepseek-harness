@@ -38,21 +38,51 @@ const DARK_VARS = `
       color-scheme: dark;`
 
 /**
+ * Narrow a post-login Location to a same-origin relative path.
+ * Rejects protocol-relative URLs, backslashes, and absolute origins so a
+ * forged `next` cannot open-redirect after a successful shared-secret login.
+ * @param raw - candidate from the login form, JSON body, or the denied request URL.
+ * @returns `pathname` plus `search`, or `/` when the candidate is unsafe or empty.
+ */
+export function safeReturnPath(raw: string | undefined | null): string {
+  if (raw === undefined || raw === null || raw === '') return '/'
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) return '/'
+  let url: URL
+  try {
+    url = new URL(raw, 'http://dsh.invalid')
+  } catch {
+    return '/'
+  }
+  if (url.origin !== 'http://dsh.invalid' || url.username !== '' || url.password !== '') return '/'
+  const next = `${url.pathname}${url.search}`
+  if (!next.startsWith('/') || next.startsWith('//')) return '/'
+  return next
+}
+
+/**
  * Self-contained Chinese login HTML. No JavaScript — a phone browser must
  * submit the form with a native POST. Palettes are explicit in both light
  * and dark so typed password bullets stay visible. `system` follows
  * `prefers-color-scheme`; `light`/`dark` match the Appearance setting.
  * A 560px breakpoint drops the desktop card chrome, matching other Web forms.
+ * A hidden `next` field carries the denied request's path and query so a
+ * successful login can resume Connection browser-token exchange.
  *
  * @param error Optional message shown above the field.
  * @param theme Appearance preference; defaults to `system`.
+ * @param next Relative path+query to resume after login; sanitized before render.
  * @returns Complete HTML document.
  */
-export function renderLoginPage(error?: string, theme: LoginTheme = 'system'): string {
+export function renderLoginPage(
+  error?: string,
+  theme: LoginTheme = 'system',
+  next: string = '/',
+): string {
   const errorHtml =
     error === undefined
       ? ''
       : `<p class="error" role="alert">${escapeHtml(error)}</p>`
+  const nextValue = escapeHtml(safeReturnPath(next))
   return `<!DOCTYPE html>
 <html lang="zh-CN" data-theme="${theme}">
 <head>
@@ -218,6 +248,7 @@ export function renderLoginPage(error?: string, theme: LoginTheme = 'system'): s
       <h1>DeepSeek Harness</h1>
       <p class="lead">请输入访问密钥以继续。</p>
       ${errorHtml}
+      <input type="hidden" name="next" value="${nextValue}">
       <label>
         <span class="sr">访问密钥</span>
         <input type="password" name="secret" autocomplete="current-password"
