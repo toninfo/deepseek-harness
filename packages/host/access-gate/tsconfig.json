@@ -18,7 +18,7 @@
       "path": "../../settings/settings"
     },
     {
-      "path": "../../client/connection"
+      "path": "../../client/connection/tsconfig.host.json"
     },
     {
       "path": "../webserver"
