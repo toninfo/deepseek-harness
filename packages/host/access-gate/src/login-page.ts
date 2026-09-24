@@ -20,6 +20,24 @@ export function resolveLoginTheme(preference: unknown): LoginTheme {
     : 'system'
 }
 
+/**
+ * Read a single Connection launch token from a request URL or relative path.
+ * Multiple `token` query values are rejected so a forged duplicate cannot pass.
+ * @param raw - request URL, path+query, or omitted.
+ * @returns the sole `token` query value, or `undefined`.
+ */
+export function launchTokenFromUrl(raw: string | undefined | null): string | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined
+  let url: URL
+  try {
+    url = new URL(raw, 'http://dsh.invalid')
+  } catch {
+    return undefined
+  }
+  const tokens = url.searchParams.getAll('token')
+  return tokens.length === 1 ? tokens[0] : undefined
+}
+
 const DARK_VARS = `
       --page: #151517;
       --card: #232324;
@@ -38,51 +56,31 @@ const DARK_VARS = `
       color-scheme: dark;`
 
 /**
- * Narrow a post-login Location to a same-origin relative path.
- * Rejects protocol-relative URLs, backslashes, and absolute origins so a
- * forged `next` cannot open-redirect after a successful shared-secret login.
- * @param raw - candidate from the login form, JSON body, or the denied request URL.
- * @returns `pathname` plus `search`, or `/` when the candidate is unsafe or empty.
- */
-export function safeReturnPath(raw: string | undefined | null): string {
-  if (raw === undefined || raw === null || raw === '') return '/'
-  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) return '/'
-  let url: URL
-  try {
-    url = new URL(raw, 'http://dsh.invalid')
-  } catch {
-    return '/'
-  }
-  if (url.origin !== 'http://dsh.invalid' || url.username !== '' || url.password !== '') return '/'
-  const next = `${url.pathname}${url.search}`
-  if (!next.startsWith('/') || next.startsWith('//')) return '/'
-  return next
-}
-
-/**
  * Self-contained Chinese login HTML. No JavaScript — a phone browser must
  * submit the form with a native POST. Palettes are explicit in both light
  * and dark so typed password bullets stay visible. `system` follows
  * `prefers-color-scheme`; `light`/`dark` match the Appearance setting.
  * A 560px breakpoint drops the desktop card chrome, matching other Web forms.
- * A hidden `next` field carries the denied request's path and query so a
- * successful login can resume Connection browser-token exchange.
+ * An optional hidden `token` field carries the Connection launch token so a
+ * successful password POST can mint both cookies in one response.
  *
  * @param error Optional message shown above the field.
  * @param theme Appearance preference; defaults to `system`.
- * @param next Relative path+query to resume after login; sanitized before render.
+ * @param launchToken Connection process token from the denied URL, when present.
  * @returns Complete HTML document.
  */
 export function renderLoginPage(
   error?: string,
   theme: LoginTheme = 'system',
-  next: string = '/',
+  launchToken?: string,
 ): string {
   const errorHtml =
     error === undefined
       ? ''
       : `<p class="error" role="alert">${escapeHtml(error)}</p>`
-  const nextValue = escapeHtml(safeReturnPath(next))
+  const tokenHtml = launchToken === undefined || launchToken === ''
+    ? ''
+    : `\n      <input type="hidden" name="token" value="${escapeHtml(launchToken)}">`
   return `<!DOCTYPE html>
 <html lang="zh-CN" data-theme="${theme}">
 <head>
@@ -247,8 +245,7 @@ export function renderLoginPage(
     <form method="post" action="/__dsh/access" autocomplete="on">
       <h1>DeepSeek Harness</h1>
       <p class="lead">请输入访问密钥以继续。</p>
-      ${errorHtml}
-      <input type="hidden" name="next" value="${nextValue}">
+      ${errorHtml}${tokenHtml}
       <label>
         <span class="sr">访问密钥</span>
         <input type="password" name="secret" autocomplete="current-password"

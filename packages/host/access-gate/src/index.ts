@@ -5,8 +5,8 @@
  * {@link ACCESS_SECRET_MIN_LENGTH} fails at load. A long enough secret
  * registers a guard that serves a no-JavaScript login page, sets an HttpOnly
  * HMAC cookie, and rejects unauthenticated `/api` and upgrade traffic.
- * A successful form login redirects to a sanitized relative `next` path so a
- * Connection browser launch token in the denied URL survives the gate.
+ * When Connection is loaded, a successful login that carries a matching
+ * launch token also mints the browser-session cookie and redirects to `/`.
  * Binding `0.0.0.0` with an empty secret also fails at load.
  * @module @deepseek-ai/dsh-host-access-gate
  */
@@ -15,8 +15,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type { WebGuardResult } from '@deepseek-ai/dsh-host-webserver'
-import { renderLoginPage, resolveLoginTheme, safeReturnPath, type LoginTheme } from './login-page.ts'
+import { launchTokenFromUrl, renderLoginPage, resolveLoginTheme, type LoginTheme } from './login-page.ts'
 import { LoginLimiter } from './rate-limit.ts'
 import {
   ACCESS_COOKIE,
@@ -163,13 +164,13 @@ function readBody(req: IncomingMessage, limit: number): Promise<Buffer | TooLarg
 interface LoginSubmission {
   /** Shared secret from the form or JSON body. */
   secret: string | undefined
-  /** Optional relative resume path; form POST uses it as the 303 Location. */
-  next: string | undefined
+  /** Optional Connection launch token from the form or JSON body. */
+  token: string | undefined
 }
 
 /**
  * @param req - the incoming request.
- * @returns the submitted secret and optional resume path, or the too-large sentinel.
+ * @returns the submitted secret and optional launch token, or the too-large sentinel.
  */
 async function readLoginSubmission(req: IncomingMessage): Promise<LoginSubmission | TooLarge> {
   const body = await readBody(req, BODY_LIMIT)
@@ -181,19 +182,31 @@ async function readLoginSubmission(req: IncomingMessage): Promise<LoginSubmissio
   if (media === 'application/json') {
     const parsed: unknown = JSON.parse(text)
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { secret: undefined, next: undefined }
+      return { secret: undefined, token: undefined }
     }
-    const record = parsed as { secret?: unknown; next?: unknown }
+    const record = parsed as { secret?: unknown; token?: unknown }
     return {
       secret: typeof record.secret === 'string' ? record.secret : undefined,
-      next: typeof record.next === 'string' ? record.next : undefined,
+      token: typeof record.token === 'string' ? record.token : undefined,
     }
   }
   const params = new URLSearchParams(text)
   return {
     secret: params.get('secret') ?? undefined,
-    next: params.get('next') ?? undefined,
+    token: params.get('token') ?? undefined,
   }
+}
+
+/**
+ * Prefer a body token, then a sole `token` query on the login POST URL.
+ * @param req - login POST request.
+ * @param submitted - parsed body fields.
+ * @returns the launch token to mint, when present.
+ */
+function resolveLaunchToken(req: IncomingMessage, submitted: LoginSubmission): string | undefined {
+  if (submitted.token !== undefined && submitted.token !== '') return submitted.token
+  /* v8 ignore next -- node:http always sets url on server requests */
+  return launchTokenFromUrl(req.url ?? '/')
 }
 
 /**
@@ -232,9 +245,9 @@ export function apply(ctx: Context, config: Config): void {
     return token !== undefined && verifyAccessToken(secret, token)
   }
 
-  const denyHtml = (res: ServerResponse, status: number, error?: string, next?: string): void => {
+  const denyHtml = (res: ServerResponse, status: number, error?: string, launchToken?: string): void => {
     res.writeHead(status, HTML_HEADERS)
-    res.end(renderLoginPage(error, appearanceTheme(ctx), next))
+    res.end(renderLoginPage(error, appearanceTheme(ctx), launchToken))
   }
 
   const denyPlain = (res: ServerResponse, status: number, body: string): void => {
@@ -260,18 +273,33 @@ export function apply(ctx: Context, config: Config): void {
       denyPlain(res, 413, 'Payload Too Large')
       return 'handled'
     }
-    const resume = safeReturnPath(submitted.next)
+    const launchToken = resolveLaunchToken(req, submitted)
     if (submitted.secret === undefined || !secretsEqual(submitted.secret, secret)) {
       limiter.recordFailure(ip, now)
-      denyHtml(res, 401, '密钥不正确。', resume)
+      denyHtml(res, 401, '密钥不正确。', launchToken)
       return 'handled'
     }
     limiter.clear(ip)
-    const token = mintAccessToken(secret, config.ttlSeconds)
+    const accessCookie = cookieHeader(
+      mintAccessToken(secret, config.ttlSeconds),
+      config.ttlSeconds,
+      isHttps(req),
+    )
+    const connection = ctx.get('connection') as HostConnectionHandle | undefined
+    const sessionCookie = launchToken !== undefined && connection !== undefined
+      ? connection.tryMintSessionCookie(req, launchToken)
+      : undefined
+    const setCookie = sessionCookie === undefined ? accessCookie : [accessCookie, sessionCookie]
     const json = (req.headers['content-type'] ?? '').includes('application/json')
+    // Prefer a clean `/` when both cookies land together. If a launch token was
+    // supplied but Connection could not mint (wrong token or not loaded yet),
+    // fall back to GET /?token= so authorizeIndex can still exchange.
+    const location = sessionCookie !== undefined || launchToken === undefined
+      ? '/'
+      : `/?token=${encodeURIComponent(launchToken)}`
     res.writeHead(json ? 204 : 303, {
-      'set-cookie': cookieHeader(token, config.ttlSeconds, isHttps(req)),
-      ...json ? {} : { location: resume },
+      'set-cookie': setCookie,
+      ...json ? {} : { location },
     })
     res.end()
     return 'handled'
@@ -297,7 +325,7 @@ export function apply(ctx: Context, config: Config): void {
       denyPlain(res, 401, 'Unauthorized')
       return 'handled'
     }
-    denyHtml(res, 401, undefined, safeReturnPath(requestUrl))
+    denyHtml(res, 401, undefined, launchTokenFromUrl(requestUrl))
     return 'handled'
   }
 

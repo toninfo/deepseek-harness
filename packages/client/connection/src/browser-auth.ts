@@ -230,6 +230,31 @@ export class BrowserAuth {
   }
 
   /**
+   * Mint a browser-session Set-Cookie when `token` matches this process launch token.
+   * @param request - request providing Host for the authority-bound cookie.
+   * @param token - candidate launch token.
+   * @returns Set-Cookie value, or undefined when minting is refused.
+   */
+  tryMintSessionCookie(request: ConnectionTrustRequest, token: string): string | undefined {
+    const authority = requestAuthority(request.headers)
+    if (authority === undefined || !tokenMatches(token, this.launchToken)) return undefined
+    const issuedAt = Date.now()
+    const expiresAt = issuedAt + this.maxAgeMilliseconds
+    const value = encodeCookie({
+      version: COOKIE_PAYLOAD_VERSION,
+      authority,
+      issuedAt,
+      expiresAt,
+    }, this.secret)
+    return sessionCookie(
+      cookieName(authority),
+      value,
+      expiresAt,
+      Math.floor(this.maxAgeMilliseconds / 1000),
+    )
+  }
+
+  /**
    * Authenticate an index request. A valid root query token mints the cookie
    * and redirects to clean `/`; a valid cookie lets the caller serve the
    * index; every other request receives the same minimal 401 response.
@@ -242,27 +267,19 @@ export class BrowserAuth {
     const url = new URL(req.url ?? '/', 'http://dsh.invalid')
     const tokens = url.searchParams.getAll(TOKEN_QUERY)
     if (tokens.length > 0) {
-      const authority = requestAuthority(req.headers)
-      if (req.method === 'GET' && url.pathname === '/' && tokens.length === 1
-        && authority !== undefined && tokenMatches(tokens.join(''), this.launchToken)) {
-        const issuedAt = Date.now()
-        const expiresAt = issuedAt + this.maxAgeMilliseconds
-        const value = encodeCookie({
-          version: COOKIE_PAYLOAD_VERSION,
-          authority,
-          issuedAt,
-          expiresAt,
-        }, this.secret)
-        res.writeHead(303, {
-          'cache-control': 'no-store',
-          'location': '/',
-          'referrer-policy': 'no-referrer',
-          'set-cookie': sessionCookie(
-            cookieName(authority), value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000),
-          ),
-        })
-        res.end()
-        return false
+      const [token] = tokens
+      if (req.method === 'GET' && url.pathname === '/' && tokens.length === 1 && token !== undefined) {
+        const cookie = this.tryMintSessionCookie(req, token)
+        if (cookie !== undefined) {
+          res.writeHead(303, {
+            'cache-control': 'no-store',
+            'location': '/',
+            'referrer-policy': 'no-referrer',
+            'set-cookie': cookie,
+          })
+          res.end()
+          return false
+        }
       }
       if (req.method === 'GET' && url.pathname === '/' && this.isAuthenticated(req)) {
         res.writeHead(303, {

@@ -192,6 +192,16 @@ export interface HostConnectionHandle {
   authorizeIndex(request: ConnectionIndexRequest, response: ConnectionIndexResponse): boolean
 
   /**
+   * Mint a browser-session `Set-Cookie` when `token` matches this process
+   * launch token. Does not write the HTTP response.
+   * @param request - request providing Host for the authority-bound cookie.
+   * @param token - candidate launch token from a login form, query, or body.
+   * @returns Set-Cookie value, or undefined when the token is absent/mismatched
+   *   or the request Host cannot form an authority.
+   */
+  tryMintSessionCookie(request: ConnectionTrustRequest, token: string): string | undefined
+
+  /**
    * Add the fresh process token to an ordinary Web application URL.
    * @param baseUrl - clean canonical browser origin.
    * @returns root URL accepted by {@link authorizeIndex} for initial login.

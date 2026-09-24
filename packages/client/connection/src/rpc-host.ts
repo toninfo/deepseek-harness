@@ -104,6 +104,14 @@ export class HostConnectionService extends Service implements HostConnectionHand
     return this.browserAuth.authorizeIndex(request, response)
   }
 
+  /**
+   * Mint a browser-session cookie for a matching launch token without writing
+   * the response (used by the access-gate login to finish both cookies in one step).
+   */
+  tryMintSessionCookie(request: ConnectionTrustRequest, token: string): string | undefined {
+    return this.browserAuth.tryMintSessionCookie(request, token)
+  }
+
   /** Add this process's launch token to the clean application URL. */
   authenticatedUrl(baseUrl: string): string {
     return this.browserAuth.authenticatedUrl(baseUrl)

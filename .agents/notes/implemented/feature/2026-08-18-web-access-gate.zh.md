@@ -14,7 +14,7 @@ Web UI 的 HTTP 载体没有认证。`dsh web --host 0.0.0.0` 被拒绝，因为
 
 - `WebServer.registerGuard` 在具名路由、回退席位和 upgrade 分发之前运行。`handled` 完成这次交换；省略 `upgrade` 则不拦截 upgrade。该表受 effect 作用域约束。
 - `@deepseek-ai/dsh-host-access-gate` 是随附的守卫。去除空白后为空的 `secret` 不安装任何东西（回环上的 `dsh web` 不变）。非空但短于 16 个字符的密钥会在加载时失败。绑定 `0.0.0.0` 且密钥为空同样会在加载时失败。Web 组合包从 `DSH_ACCESS_SECRET` 读取 `secret`。
-- 未认证的 HTML GET/HEAD 收到无需 JavaScript 的中文登录页。该页跟随 Host 外观偏好（`ui-theme.preference`：`light`、`dark` 或 `system`）；没有设置时使用 `system` 与 `prefers-color-scheme`。两套配色都为密码框设置 `color`、背景、`-webkit-text-fill-color` 与 `caret-color`，使已输入的圆点保持可见；`font-size: 16px` 避免 iOS 放大输入框。560px 断点（与其它 Web 表单相同）会去掉桌面卡片装饰、应用安全区边距，并在屏幕键盘弹出时允许页面滚动。被拒绝请求的 path 与 query 会写入隐藏表单字段 `next`。`POST /__dsh/access` 接受表单 `secret=` 与可选的 `next=`，或 JSON `{secret, next?}`，并设置 HttpOnly 的 `dsh_access` HMAC cookie（`SameSite=Lax`、`Path=/`、`Max-Age`=`ttlSeconds`，在 HTTPS 或 `X-Forwarded-Proto` 以 `https` 开头时带 `Secure`）。表单登录成功后 303 到经净化的同源相对路径 `next`（默认 `/`）；绝对 URL、协议相对 URL 与反斜杠回退为 `/`。未认证的 `/api` 以及其他非 GET/HEAD 返回 401。未认证的 upgrade 会被拒绝。失败登录按 `socket.remoteAddress` 限制为每 60 秒五次。
+- 未认证的 HTML GET/HEAD 收到无需 JavaScript 的中文登录页。该页跟随 Host 外观偏好（`ui-theme.preference`：`light`、`dark` 或 `system`）；没有设置时使用 `system` 与 `prefers-color-scheme`。两套配色都为密码框设置 `color`、背景、`-webkit-text-fill-color` 与 `caret-color`，使已输入的圆点保持可见；`font-size: 16px` 避免 iOS 放大输入框。560px 断点（与其它 Web 表单相同）会去掉桌面卡片装饰、应用安全区边距，并在屏幕键盘弹出时允许页面滚动。被拒绝的 `/?token=` URL 会把该启动 token 写入隐藏表单字段。`POST /__dsh/access` 接受表单 `secret=` 与可选的 `token=`，或 JSON `{secret, token?}`，并读取 POST URL 上唯一的 `?token=`。它设置 HttpOnly 的 `dsh_access` HMAC cookie（`SameSite=Lax`、`Path=/`、`Max-Age`=`ttlSeconds`，在 HTTPS 或 `X-Forwarded-Proto` 以 `https` 开头时带 `Secure`）。当 Connection 已加载且启动 token 匹配时，同一次响应还会签发浏览器会话 cookie；表单登录成功后 303 到 `/`。若携带了 token 但此刻无法签发，则 303 回退到 `/?token=`，交给普通的 GET 兑换。未认证的 `/api` 以及其他非 GET/HEAD 返回 401。未认证的 upgrade 会被拒绝。失败登录按 `socket.remoteAddress` 限制为每 60 秒五次。
 - cookie 存储过期时间加 HMAC，不存储密钥。这不是用户账户系统：任何知道密钥的人都是同一主体。TLS 终止仍由反向代理负责。特权 `/api` 方法仍只限回环。
 
 ## 曾考虑的替代方案
@@ -27,12 +27,14 @@ Web UI 的 HTTP 载体没有认证。`dsh web --host 0.0.0.0` 被拒绝，因为
 
 **只拦截 `/api`。** 不予采纳：未认证的 SPA 字节和 upgrade 仍会泄漏会话 UI 与事件流；拦截器必须坐在 HTTP 载体上。
 
-**表单登录成功后总是 303 到 `/`。** 不予采纳：这会丢掉被拒绝 URL 上的 Connection 浏览器启动 `?token=`，第二层 cookie 兑换失败，浏览器会再次要求打开 CLI 打印的地址。
+**表单登录成功后总是 303 到 `/` 且不兑换启动 token。** 不予采纳：这会丢掉被拒绝 URL 上的 Connection 浏览器启动 `?token=`，第二层 cookie 兑换失败，浏览器会再次要求打开 CLI 打印的地址。
 
-**用 `Referer` 头恢复原地址。** 不予采纳：在 `Referrer-Policy` 下浏览器可能省略或剥离 Referer，且伪造的 Referer 不如经同源相对路径净化的表单字段可靠。
+**密码 POST 之后必须再 GET `/`?token=`。** 作为默认路径不予采纳：探活脚本与手机都受益于密码 POST 通过 `connection.tryMintSessionCookie` 一次签发两枚 cookie；GET 兑换仍作为回退保留。
+
+**用 `Referer` 头恢复原地址。** 不予采纳：在 `Referrer-Policy` 下浏览器可能省略或剥离 Referer，且伪造的 Referer 不如显式的启动 token 字段可靠。
 
 ## 后果
 
-手机可以打开公网源、输入密钥，然后使用普通会话 UI，包括 `session.prompt`。当 CLI 打印的 Connection 浏览器 URL 带有 `?token=` 时，访问门会在密码 POST 之后保留该 query，从而在设置 `dsh_access` 之后仍能让 `authorizeIndex` 签发 `dsh-auth-*`；两枚 cookie 仍是彼此独立的主体。设置、凭据、原生 pick/open 以及 agent-preset 创作仍只限回环。没有 TLS 反向代理的公网绑定会在线路上泄漏密钥和 cookie。守卫在 `apply` 中、webserver 已经监听之后才注册，因此启动窗口内的请求可能错过该门。Host 栅栏与访问门仍然分开：公网 Host 除了 cookie 之外仍需要 `--trusted-host`（或推导的 LAN IP）。
+手机可以打开公网源、输入密钥，然后使用普通会话 UI，包括 `session.prompt`。当 CLI 打印的 Connection 浏览器 URL 带有 `?token=` 时，访问门会在密码 POST 上同时签发 `dsh_access` 与浏览器会话 cookie（若 Connection 此刻无法签发则回退到 `/?token=`）；两枚 cookie 仍是彼此独立的主体。设置、凭据、原生 pick/open 以及 agent-preset 创作仍只限回环。没有 TLS 反向代理的公网绑定会在线路上泄漏密钥和 cookie。守卫在 `apply` 中、webserver 已经监听之后才注册，因此启动窗口内的请求可能错过该门。Host 栅栏与访问门仍然分开：公网 Host 除了 cookie 之外仍需要 `--trusted-host`（或推导的 LAN IP）。
 
 交叉链接：[显式指定 Web 绑定地址](./2026-07-22-web-bind-address.md)，[api 浏览器信任边界](../architecture/2026-07-28-api-browser-trust-boundary.zh.md)。

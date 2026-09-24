@@ -107,6 +107,11 @@ describe('BrowserAuth', () => {
     })
     expect(login.state.headers?.['set-cookie']).toMatch(/; Max-Age=2592000; Path=\/; Expires=.*; HttpOnly; SameSite=Strict$/u)
     expect(login.state.headers?.['set-cookie']).not.toContain('Secure')
+    const token = new URL(login.launchUrl).searchParams.get('token')
+    expect(token).toBeTruthy()
+    expect(first.tryMintSessionCookie(request('/', '127.0.0.1:3080'), token!))
+      .toMatch(/^dsh-auth-[^=]+=/)
+    expect(first.tryMintSessionCookie(request('/', '127.0.0.1:3080'), 'wrong')).toBeUndefined()
     expect(first.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: login.cookie }))).toBe(true)
     expect(first.isAuthenticated({
       headers: new Headers({ host: '127.0.0.1:3080', cookie: login.cookie }),

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-web-access-gate.md
-2026-08-18-web-access-gate.md: dd36a7b9ed9b6bc265caa10ddcd5da9469797b96
-2026-08-18-web-access-gate.zh.md: 1b4a5132dcbd374234a2c548aed920f012ed9eaa
+2026-08-18-web-access-gate.md: 0491fbb8fd99e05ebfa33134b8f438db56aadf31
+2026-08-18-web-access-gate.zh.md: 180b19233ca54d15a584156fe3623b926898bfef

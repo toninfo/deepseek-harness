@@ -25,7 +25,7 @@ import {
   secretsEqual,
   verifyAccessToken,
 } from '../src/token.ts'
-import { renderLoginPage, resolveLoginTheme, safeReturnPath } from '../src/login-page.ts'
+import { renderLoginPage, resolveLoginTheme, launchTokenFromUrl } from '../src/login-page.ts'
 
 const SECRET = 'sixteen-chars-ok'
 const SHORT = 'too-short'
@@ -165,19 +165,16 @@ describe('login page', () => {
     expect(renderLoginPage()).not.toContain('class="error"')
   })
 
-  it('keeps only a same-origin relative resume path', () => {
-    expect(safeReturnPath(undefined)).toBe('/')
-    expect(safeReturnPath('')).toBe('/')
-    expect(safeReturnPath('/?token=abc')).toBe('/?token=abc')
-    expect(safeReturnPath('/workspace?x=1')).toBe('/workspace?x=1')
-    expect(safeReturnPath('//evil.example')).toBe('/')
-    expect(safeReturnPath('https://evil.example/')).toBe('/')
-    expect(safeReturnPath('/\\evil')).toBe('/')
-    expect(safeReturnPath('relative')).toBe('/')
-    expect(renderLoginPage(undefined, 'system', '/?token=a&b="c"')).toContain(
-      'name="next" value="/?token=a&amp;b=%22c%22"',
+  it('carries a sole launch token from the denied URL', () => {
+    expect(launchTokenFromUrl(undefined)).toBeUndefined()
+    expect(launchTokenFromUrl('/')).toBeUndefined()
+    expect(launchTokenFromUrl('/?token=abc')).toBe('abc')
+    expect(launchTokenFromUrl('/?token=a&token=b')).toBeUndefined()
+    expect(launchTokenFromUrl('https://evil.example/?token=x')).toBe('x')
+    expect(renderLoginPage(undefined, 'system', 'launch&"')).toContain(
+      'name="token" value="launch&amp;&quot;"',
     )
-    expect(renderLoginPage(undefined, 'system', '//evil')).toContain('name="next" value="/"')
+    expect(renderLoginPage()).not.toContain('name="token"')
   })
 
   it('keeps the password field editable with an explicit caret color', () => {
@@ -310,7 +307,7 @@ describe('real Loader composition', () => {
       expect(login.status).toBe(401)
       expect(login.body).toContain('请输入访问密钥以继续')
       expect(login.body).toContain('data-theme="system"')
-      expect(login.body).toContain('name="next" value="/?token=launch-token"')
+      expect(login.body).toContain('name="token" value="launch-token"')
       expect((await request(port, '/', { method: 'HEAD' })).status).toBe(401)
       expect((await request(port, '/api/session')).status).toBe(401)
       expect((await request(port, '/', { method: 'POST' })).status).toBe(401)
@@ -334,23 +331,25 @@ describe('real Loader composition', () => {
       expect(bareLogin.status).toBe(303)
       expect(bareLogin.location).toBe('/')
 
-      const tokenLogin = await request(port, '/__dsh/access', {
+      // Without Connection, a launch token falls back to GET /?token= exchange.
+      const tokenLogin = await request(port, '/__dsh/access?token=launch-token', {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: `secret=${SECRET}&next=${encodeURIComponent('/?token=launch-token')}`,
+        body: `secret=${SECRET}`,
         redirect: 'manual',
       })
       expect(tokenLogin.status).toBe(303)
       expect(tokenLogin.headers.get('location')).toBe('/?token=launch-token')
+      expect(tokenLogin.headers.get('set-cookie')).toContain(`${ACCESS_COOKIE}=`)
 
-      const openRedirect = await request(port, '/__dsh/access', {
+      const bodyTokenLogin = await request(port, '/__dsh/access', {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: `secret=${SECRET}&next=${encodeURIComponent('//evil.example')}`,
+        body: `secret=${SECRET}&token=body-token`,
         redirect: 'manual',
       })
-      expect(openRedirect.status).toBe(303)
-      expect(openRedirect.headers.get('location')).toBe('/')
+      expect(bodyTokenLogin.status).toBe(303)
+      expect(bodyTokenLogin.headers.get('location')).toBe('/?token=body-token')
 
       const jsonLogin = await request(port, '/__dsh/access', {
         method: 'POST',
@@ -381,12 +380,12 @@ describe('real Loader composition', () => {
       const wrong = await request(port, '/__dsh/access', {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: `secret=nope-nope-nope-nope&next=${encodeURIComponent('/?token=keep')}`,
+        body: 'secret=nope-nope-nope-nope&token=keep',
         redirect: 'manual',
       })
       expect(wrong.status).toBe(401)
       expect(wrong.body).toContain('密钥不正确')
-      expect(wrong.body).toContain('name="next" value="/?token=keep"')
+      expect(wrong.body).toContain('name="token" value="keep"')
 
       const badJson = await request(port, '/__dsh/access', {
         method: 'POST',
@@ -497,6 +496,35 @@ describe('real Loader composition', () => {
       })
       expect(blocked.status).toBe(429)
       expect(blocked.body).toContain('尝试次数过多')
+    } finally {
+      await disposeComposition(loaded)
+    }
+  })
+
+  it('sets both cookies and lands on / when Connection mints the session', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition({ secret: SECRET, ttlSeconds: 3600 })
+    try {
+      const sessionCookie = 'dsh-auth-test=session; Path=/; HttpOnly; SameSite=Strict'
+      loaded.ctx.provide('connection', {
+        tryMintSessionCookie: (_req: IncomingMessage, token: string) =>
+          token === 'launch-token' ? sessionCookie : undefined,
+      } as never)
+      const port = loaded.ctx.webServer.port
+      const dual = await request(port, '/__dsh/access?token=launch-token', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          host: `127.0.0.1:${String(port)}`,
+        },
+        body: `secret=${SECRET}`,
+        redirect: 'manual',
+      })
+      expect(dual.status).toBe(303)
+      expect(dual.headers.get('location')).toBe('/')
+      const cookies = dual.headers.getSetCookie?.() ?? []
+      const joined = cookies.length > 0 ? cookies.join('\n') : (dual.headers.get('set-cookie') ?? '')
+      expect(joined).toContain(`${ACCESS_COOKIE}=`)
+      expect(joined).toContain('dsh-auth-test=session')
     } finally {
       await disposeComposition(loaded)
     }
